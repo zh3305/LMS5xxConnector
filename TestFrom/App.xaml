@@ -1,0 +1,12 @@
+﻿<Application x:Class="TestFrom.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:TestFrom"
+             xmlns:valueConverter="clr-namespace:DistanceSensorAppDemo.ValueConverter"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+
+        <valueConverter:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+        <valueConverter:ColorToSolidColorBrushValueConverter x:Key="ColorToSolidColorBrushValueConverter" />
+    </Application.Resources>
+</Application>
