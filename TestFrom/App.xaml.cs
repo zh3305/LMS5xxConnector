@@ -17,10 +17,6 @@ namespace TestFrom
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
-            // Page1 mainWindow = new Page1();
-            // MainWindowViewModel2 mainWindowViewModel = new MainWindowViewModel2();
-            // mainWindow.DataContext = mainWindowViewModel;
-            // mainWindow.ShowDialog();
         }
     }
 }

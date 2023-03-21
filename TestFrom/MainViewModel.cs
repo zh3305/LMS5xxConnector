@@ -1,53 +1,56 @@
 using System;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Reflection.Metadata;
 using System.Text.Json.Serialization;
 using System.Windows;
 using System.Windows.Media;
+using CommunityToolkit.Mvvm.ComponentModel;
 using LMS5xxConnector;
 using LMS5xxConnector.Telegram;
 using LMS5xxConnector.Telegram.CommandContents;
 using Newtonsoft.Json;
+using CommunityToolkit.Mvvm.Input;
 using Color = System.Drawing.Color;
 using Point = System.Windows.Point;
+using InteractiveDataDisplay.WPF;
+using System.Xml.Linq;
 
 namespace DistanceSensorAppDemo;
 
-public class MainViewModel : INotifyPropertyChanged
+[ObservableObject]
+public partial class MainViewModel
 {
+    [ObservableProperty]
     private string _ipAddress;
-    private bool _isConnected;
-    private bool _isInitialized;
-    private bool _isStarted;
-    private bool _deviceInfoVisibility;
+    [ObservableProperty]
     private string _statusText;
+    [ObservableProperty]
     private string _deviceInfo;
+    private bool _isConnected;
 
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
+    [NotifyCanExecuteChangedFor(nameof(InitializeCommand))]
+    private bool _isInitialized;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(StartCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StopCommand))]
+    private bool _isStarted;
+    [ObservableProperty]
+    private string _currentAction = "Ready";
+    public CircleMarkerGraph CirclePoints ;
+    // [ObservableProperty]
+    // public ObservableCollection<UIElement> charts = new ObservableCollection<UIElement>();
+
+    private readonly Lms5XxConnector _connector = new Lms5XxConnector();
     public MainViewModel()
     {
-        ConnectCommand = new RelayCommand(Connect);
-        DisconnectCommand = new RelayCommand(Disconnect);
-        InitializeCommand = new RelayCommand(Initialize, CanInitialize);
-        StartCommand = new RelayCommand(Start, CanStart);
-        GetDataCommand = new RelayCommand(GetData);
-        StopCommand = new RelayCommand(Stop, CanStop);
-        RestartCommand = new RelayCommand(Restart);
-        LoginCommand = new RelayCommand(Login);
-        GetDeviceInfoCommand = new RelayCommand(GetDeviceInfo);
-        DataCanvasViewModel = new DataCanvasViewModel();
+#if DEBUG
         IpAddress = "192.168.0.231";
-    }
-
-
-    public string IpAddress
-    {
-        get => _ipAddress;
-        set
-        {
-            _ipAddress = value;
-            OnPropertyChanged(nameof(IpAddress));
-        }
+#endif
     }
 
     public bool IsConnected
@@ -58,6 +61,10 @@ public class MainViewModel : INotifyPropertyChanged
             _isConnected = value;
             OnPropertyChanged(nameof(IsConnected));
             OnPropertyChanged(nameof(IsDisconnected));
+            StartCommand.NotifyCanExecuteChanged();
+            StopCommand.NotifyCanExecuteChanged();
+            ConnectCommand.NotifyCanExecuteChanged();
+            InitializeCommand.NotifyCanExecuteChanged();
             if (IsConnected)
             {
                 StatusText = "Connected";
@@ -66,89 +73,19 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 StatusText = "Disconnected";
             }
-            // InitializeCommand.RaiseCanExecuteChanged();
-            // RestartCommand.RaiseCanExecuteChanged();
-            // LoginCommand.RaiseCanExecuteChanged();
-            // GetDeviceInfoCommand.RaiseCanExecuteChanged();
         }
     }
 
     public bool IsDisconnected => !IsConnected;
 
-    public bool IsInitialized
-    {
-        get => _isInitialized;
-        set
-        {
-            _isInitialized = value;
-            OnPropertyChanged(nameof(IsInitialized));
-            // StartCommand.RaiseCanExecuteChanged();
-        }
-    }
 
-    public bool IsStarted
-    {
-        get => _isStarted;
-        set
-        {
-            _isStarted = value;
-            OnPropertyChanged(nameof(IsStarted));
-            // StopCommand.RaiseCanExecuteChanged();
-        }
-    }
+    
 
 
-    public string StatusText
-    {
-        get => _statusText;
-        set
-        {
-            _statusText = value;
-            OnPropertyChanged(nameof(StatusText));
-        }
-    }
 
-    public string DeviceInfo
-    {
-        get => _deviceInfo;
-        set
-        {
-            _deviceInfo = value;
-            OnPropertyChanged(nameof(DeviceInfo));
-        }
-    }
 
-    public RelayCommand ConnectCommand { get; }
-
-    public RelayCommand DisconnectCommand { get; }
-
-    public RelayCommand InitializeCommand { get; }
-
-    public RelayCommand StartCommand { get; }
-    public RelayCommand GetDataCommand { get; }
-
-    public RelayCommand StopCommand { get; }
-
-    public RelayCommand RestartCommand { get; }
-
-    public RelayCommand LoginCommand { get; }
-
-    public RelayCommand GetDeviceInfoCommand { get; }
-
-    public DataCanvasViewModel DataCanvasViewModel { get; }
-
-    public string CurrentAction
-    {
-        get => _currentAction;
-        set
-        {
-            if (value == _currentAction) return;
-            _currentAction = value;
-            OnPropertyChanged(nameof(CurrentAction));
-        }
-    }
-
-    private async void Connect()
+    [RelayCommand]
+    public  void Connect()
     {
         if (string.IsNullOrEmpty(_ipAddress))
         {
@@ -158,7 +95,7 @@ public class MainViewModel : INotifyPropertyChanged
 
         try
         {
-            _connector.ConnectAsync(_ipAddress + ":2111");
+             _connector.ConnectAsync(_ipAddress + ":2111");
         }
         catch (FormatException e)
         {
@@ -169,9 +106,7 @@ public class MainViewModel : INotifyPropertyChanged
         IsConnected = _connector.IsConnected;
     }
 
-    private Lms5XxConnector _connector = new Lms5XxConnector();
-    private string _currentAction = "Ready";
-
+    [RelayCommand]
     private async void Disconnect()
     {
         // TODO: Implement disconnect logic
@@ -183,15 +118,12 @@ public class MainViewModel : INotifyPropertyChanged
         IsConnected = false;
         IsInitialized = false;
         IsStarted = false;
-
-        DataCanvasViewModel.ClearData();
+        
     }
 
-    private bool CanInitialize()
-    {
-        return IsConnected && !IsInitialized;
-    }
+    private bool CanInitialize => IsConnected && !IsInitialized;
 
+    [RelayCommand(CanExecute = nameof(CanInitialize))]
     private async void Initialize()
     {
         // TODO: Implement initialization logic
@@ -199,18 +131,11 @@ public class MainViewModel : INotifyPropertyChanged
         IsInitialized = true;
     }
 
-    private bool CanStart()
-    {
-        return IsConnected  && !IsStarted;
-    }
+    private bool CanStart => IsConnected && !IsStarted;
 
-    
+    private bool CanStop => IsConnected; //&& IsStarted;
 
-    private bool CanStop()
-    {
-        return IsConnected; //&& IsStarted;
-    }
-
+    [RelayCommand(CanExecute = nameof(CanStop))]
     private async void Stop()
     {
         //开始连续采集
@@ -226,18 +151,21 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    [RelayCommand]
     private async void Restart()
     {
         // TODO: Implement restart logic
         // This should stop the acquisition, reinitialize the device, and start the acquisition again
     }
 
+    [RelayCommand]
     private async void Login()
     {
         // TODO: Implement login logic
         // This should prompt the user for credentials and perform a login
     }
 
+    [RelayCommand]
     private async void GetDeviceInfo()
     {
         // TODO: Implement get device info logic
@@ -248,6 +176,7 @@ public class MainViewModel : INotifyPropertyChanged
         CurrentAction = "Ready";
     }
 
+    [RelayCommand(CanExecute = nameof(CanStart))]
     private async void Start()
     {
         //开始连续采集
@@ -277,12 +206,9 @@ public class MainViewModel : INotifyPropertyChanged
             }
         });
         
-        // if ( telegramContent.Payload.CommandConnent is LMDscandataModeCommand { OutputChannelList.Count: > 0 } dscandataModeCommand )
-        // {
-        //     ShowScanData(dscandataModeCommand);
-        // }
     }
 
+    [RelayCommand]
     private async void GetData()
     {
   
@@ -302,88 +228,38 @@ public class MainViewModel : INotifyPropertyChanged
         // _traceWrapper.WriteInformation(Newtonsoft.Json.JsonConvert.SerializeObject(
 
 
-        //缩放倍率
-        var scale = 0.1;
-
-        DataCanvasViewModel.UpdateData(lmdScandata.DistDatas.Select((t, index) =>
+        // //缩放倍率
+        // var scale = 0.1;
+        // DataCanvasViewModel.UpdateData(lmdScandata.DistDatas.Select((t, index) =>
+        // {
+        //     var dim = lmdScandata.ScaleFactor.Value * t.Value;
+        //     var angle = ((double)(lmdScandata.StartAngle.Value) + index * (lmdScandata.AngularStepSize.Value)) /10000; // 角度，单位：度
+        //     var point = new
+        //     {
+        //         X = dim * Math.Cos(angle * Math.PI / 180),
+        //         Y = dim * Math.Sin(angle * Math.PI / 180),
+        //         Dim = dim,
+        //         // Color = ValueToColor(data.RSSI1.DataPoints[index],0, 65000, startColor, endCorol)
+        //         Color = GetRssiColor(lmDscandataModeCommand.OutputChannel8BitList[0].DistDatas[index].Value)
+        //     };
+        //     return new ScanPoint(250 + point.X * scale, 300 - point.Y * scale, point.Dim, point.Color);
+        // }));
+        var x = lmdScandata.DistDatas.Select((t, index) =>
         {
             var dim = lmdScandata.ScaleFactor.Value * t.Value;
-            var angle = ((double)(lmdScandata.StartAngle.Value) + index * (lmdScandata.AngularStepSize.Value)) /
-                        10000; // 角度，单位：度
+            var angle = ((double)(lmdScandata.StartAngle.Value) + index * (lmdScandata.AngularStepSize.Value)) / 10000; // 角度，单位：度
+            return dim * Math.Cos(angle * Math.PI / 180);
+        });
+        var y = lmdScandata.DistDatas.Select((t, index) =>
+        {
+            var dim = lmdScandata.ScaleFactor.Value * t.Value;
+            var angle = ((double)(lmdScandata.StartAngle.Value) + index * (lmdScandata.AngularStepSize.Value)) / 10000; // 角度，单位：度
+            return dim * Math.Sin(angle * Math.PI / 180);
+        });
+        CirclePoints.PlotColor(x, y, lmDscandataModeCommand.OutputChannel8BitList[0].DistDatas.Select(t=>t.Value));
 
-            var point = new
-            {
-                X = dim * Math.Cos(angle * Math.PI / 180),
-                Y = dim * Math.Sin(angle * Math.PI / 180),
-                Dim = dim,
-                // Color = ValueToColor(data.RSSI1.DataPoints[index],0, 65000, startColor, endCorol)
-                Color = GetRssiColor(lmDscandataModeCommand.OutputChannel8BitList[0].DistDatas[index].Value)
-            };
-            return new ScanPoint(250 + point.X * scale, 300 - point.Y * scale, point.Dim, point.Color);
-        }));
+
     }
 
-
-    public Color GetRssiColor(double uIntPtr)
-    {
-        Color temp = new Color();
-
-        double GetColorFactor(double val, double scale)
-        {
-            return val * uIntPtr - val * scale;
-        }
-
-        if (uIntPtr < 10) //  Black -> Blue Section
-        {
-            temp = Color.FromArgb(255, 0, 0, (byte)((double)28.3 * (double)uIntPtr));
-        }
-        else if ((10 <= uIntPtr) && (uIntPtr < 30)) //  Blue -> Teal Section
-        {
-            double r = GetColorFactor(127 / (29 - 10), 10);
-            temp = Color.FromArgb(255, 0, (byte)r, 255 - (byte)r);
-        }
-        else if ((30 <= uIntPtr) && (uIntPtr < 50)) //  Teal -> Cyan Section
-        {
-            double r = GetColorFactor(127 / (49 - 30), 30);
-            temp = Color.FromArgb(255, 0, 128 + (byte)r, 128 + (byte)r);
-        }
-        else if ((50 <= uIntPtr) && (uIntPtr < 70)) //  Cyan -> Spring Green Section
-        {
-            double r = GetColorFactor(127 / (69 - 50), 50);
-            temp = Color.FromArgb(255, 0, 255, 255 - (byte)r);
-        }
-        else if ((70 <= uIntPtr) && (uIntPtr < 90)) // Spring green -> Lime Section
-        {
-            double r = GetColorFactor(127 / (89 - 70), 70);
-            temp = Color.FromArgb(255, 0, 255, 127 - (byte)r);
-        }
-        else if ((90 <= uIntPtr) && (uIntPtr < 110)) // Lime -> Yellow Section
-        {
-            double r = GetColorFactor(255 / (109 - 90), 90);
-            temp = Color.FromArgb(255, (byte)r, 255, 0);
-        }
-        else if ((110 <= uIntPtr) && (uIntPtr < 140)) // Yellow -> Orange Section
-        {
-            double r = GetColorFactor(90 / (139 - 110), 110);
-            temp = Color.FromArgb(255, 255, 255 - (byte)r, 0);
-        }
-        else if ((140 <= uIntPtr) && (uIntPtr < 170)) // Orange -> Red Section
-        {
-            double r = GetColorFactor(165 / (169 - 140), 140);
-            temp = Color.FromArgb(255, 255, 165 - (byte)r, 0);
-        }
-        else if (170 <= uIntPtr)
-        {
-            temp = Color.FromArgb(255, 255, 0, 0); //   red
-        }
-
-        return temp;
-    }
-
-    public event PropertyChangedEventHandler PropertyChanged;
-
-    protected virtual void OnPropertyChanged(string propertyName)
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
+    
 }
