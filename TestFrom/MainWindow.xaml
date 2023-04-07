@@ -34,6 +34,8 @@
                     Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}" />
             <Button Content="Start Permanently Scan" Command="{Binding StartCommand}" Margin="5"
                     Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}" />
+            <TextBlock Text="RotationAngle"  Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}" />
+            <TextBox Text="{Binding RotationAngle}"   Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}" />
             <Button Content="Stop Permanently Scan" Command="{Binding StopCommand}" Margin="5"
                     Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}" />
             <Button Content="Restart" Command="{Binding RestartCommand}" Margin="5"

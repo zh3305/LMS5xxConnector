@@ -27,6 +27,8 @@ public partial class MainViewModel
     [ObservableProperty]
     private string _statusText;
     [ObservableProperty]
+    private double _rotationAngle;
+    [ObservableProperty]
     private string _deviceInfo;
     private bool _isConnected;
 
@@ -244,18 +246,29 @@ public partial class MainViewModel
         //     };
         //     return new ScanPoint(250 + point.X * scale, 300 - point.Y * scale, point.Dim, point.Color);
         // }));
-        var x = lmdScandata.DistDatas.Select((t, index) =>
+        // var x = lmdScandata.DistDatas.Select((t, index) =>
+        // {
+        //     var dim = lmdScandata.ScaleFactor.Value * t.Value;
+        //     var angle = ((double)(lmdScandata.StartAngle.Value) + index * (lmdScandata.AngularStepSize.Value)) / 10000; // 角度，单位：度
+        //     return dim * Math.Cos(angle * Math.PI / 180);
+        // });
+        // var y = lmdScandata.DistDatas.Select((t, index) =>
+        // {
+        //     var dim = lmdScandata.ScaleFactor.Value * t.Value;
+        //     var angle = ((double)(lmdScandata.StartAngle.Value) + index * (lmdScandata.AngularStepSize.Value)) / 10000; // 角度，单位：度
+        //     return dim * Math.Sin(angle * Math.PI / 180);
+        // });
+
+        var points = lmdScandata.DistDatas.Select((t, index) =>
         {
             var dim = lmdScandata.ScaleFactor.Value * t.Value;
             var angle = ((double)(lmdScandata.StartAngle.Value) + index * (lmdScandata.AngularStepSize.Value)) / 10000; // 角度，单位：度
-            return dim * Math.Cos(angle * Math.PI / 180);
+          angle += _rotationAngle; // 应用旋转角度
+            return new { X = dim * Math.Cos(angle * Math.PI / 180), Y = dim * Math.Sin(angle * Math.PI / 180), Dim = dim };
         });
-        var y = lmdScandata.DistDatas.Select((t, index) =>
-        {
-            var dim = lmdScandata.ScaleFactor.Value * t.Value;
-            var angle = ((double)(lmdScandata.StartAngle.Value) + index * (lmdScandata.AngularStepSize.Value)) / 10000; // 角度，单位：度
-            return dim * Math.Sin(angle * Math.PI / 180);
-        });
+
+        var x = points.Select(p => p.X);
+        var y = points.Select(p => p.Y);
         CirclePoints.PlotColor(x, y, lmDscandataModeCommand.OutputChannel8BitList[0].DistDatas.Select(t=>t.Value));
 
 
