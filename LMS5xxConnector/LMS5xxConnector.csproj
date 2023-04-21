@@ -4,6 +4,9 @@
     <TargetFramework>netstandard2.1</TargetFramework>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
+    <PackageProjectUrl>https://github.com/zh3305/LMS5xxConnector</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/zh3305/LMS5xxConnector</RepositoryUrl>
+    <Description>LMS5xx 激光雷达链接程序</Description>
   </PropertyGroup>
 
   <ItemGroup>

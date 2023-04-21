@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Reflection.Metadata;
 using System.Text.Json.Serialization;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -87,7 +88,7 @@ public partial class MainViewModel
 
 
     [RelayCommand]
-    public  void Connect()
+    public async Task ConnectAsync()
     {
         if (string.IsNullOrEmpty(_ipAddress))
         {
@@ -97,7 +98,7 @@ public partial class MainViewModel
 
         try
         {
-             _connector.ConnectAsync(_ipAddress + ":2111");
+            await _connector.ConnectAsync(_ipAddress + ":2111");
         }
         catch (FormatException e)
         {

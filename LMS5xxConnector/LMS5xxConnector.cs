@@ -140,11 +140,11 @@ namespace LMS5xxConnector
 
             _tokenSource = new CancellationTokenSource();
             _token = _tokenSource.Token;
-            _token.Register(() => { _networkStream?.Close(); });
-            var networkReadTask = Task.Run(() => DataReceiver(_token), _token);
-            // Wait for closed connection
-            await networkReadTask;
-            tcpClient.Close();
+            _token.Register(() => { _networkStream?.Close(); tcpClient.Close(); });
+           _= Task.Run(() => DataReceiver(_token), _token);
+            // // Wait for closed connection
+            // await networkReadTask;
+          
         }
 
         private async Task DataReceiver(CancellationToken token)
