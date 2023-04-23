@@ -105,6 +105,12 @@ public partial class MainViewModel
             MessageBox.Show("ip地址格式错误!");
             return;
         }
+        catch (Exception e)
+        {
+
+            MessageBox.Show("设备链接失败!");
+            return;
+        }
 
         IsConnected = _connector.IsConnected;
     }
