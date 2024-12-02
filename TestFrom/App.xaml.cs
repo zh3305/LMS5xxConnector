@@ -17,6 +17,11 @@ namespace TestFrom
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
+            //全局异常拦截
+            AppDomain.CurrentDomain.UnhandledException += (sender, e1) =>
+            {
+                Console.WriteLine(e1.ExceptionObject);
+            };
         }
     }
 }

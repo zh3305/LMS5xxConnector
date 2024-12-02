@@ -25,6 +25,7 @@
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
         <Label Content="Distance Sensor IP:" Grid.Row="0" Grid.Column="0" />
+        <Button Content="print" Grid.Row="0" Grid.Column="0" Margin="5" Click="Button_Click" />
         <TextBox Text="{Binding IpAddress}" MinWidth="200" Grid.Row="0" Grid.Column="1" Margin="5" />
         <Button Content="Connect" Command="{Binding ConnectCommand}" Grid.Row="0" Grid.Column="2" Margin="5" />
         <Button Content="Disconnect" Command="{Binding DisconnectCommand}" Grid.Row="0" Grid.Column="2" Margin="5"

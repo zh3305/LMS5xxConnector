@@ -8,6 +8,7 @@
     <RepositoryUrl>https://github.com/zh3305/LMS5xxConnector</RepositoryUrl>
     <Description>LMS5xx 激光雷达链接程序</Description>
 	  <VersionPrefix>1.0.1</VersionPrefix>
+	  <Platforms>AnyCPU;x64</Platforms>
   </PropertyGroup>
 
   <ItemGroup>

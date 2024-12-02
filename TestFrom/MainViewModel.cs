@@ -1,22 +1,13 @@
 using System;
-using System.Collections.ObjectModel;
-using System.ComponentModel;
-using System.Linq;
-using System.Reflection.Metadata;
-using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using LMS5xxConnector;
 using LMS5xxConnector.Telegram;
 using LMS5xxConnector.Telegram.CommandContents;
-using Newtonsoft.Json;
 using CommunityToolkit.Mvvm.Input;
-using Color = System.Drawing.Color;
-using Point = System.Windows.Point;
 using InteractiveDataDisplay.WPF;
-using System.Xml.Linq;
+using System.Diagnostics;
 
 namespace DistanceSensorAppDemo;
 
@@ -28,7 +19,7 @@ public partial class MainViewModel
     [ObservableProperty]
     private string _statusText;
     [ObservableProperty]
-    private double _rotationAngle;
+    private double _rotationAngle=0;
     [ObservableProperty]
     private string _deviceInfo;
     private bool _isConnected;
@@ -52,8 +43,9 @@ public partial class MainViewModel
     public MainViewModel()
     {
 #if DEBUG
-        IpAddress = "192.168.0.231";
+        IpAddress = "192.168.1.231";
 #endif
+        _stopwatch.Start();
     }
 
     public bool IsConnected
@@ -102,17 +94,22 @@ public partial class MainViewModel
         }
         catch (FormatException e)
         {
-            MessageBox.Show("ip地址格式错误!");
+            MessageBox.Show("ip地址格式错误!" + e.Message);
             return;
         }
         catch (Exception e)
         {
 
-            MessageBox.Show("设备链接失败!");
+            MessageBox.Show("设备链接失败!"+e.Message);
             return;
         }
 
         IsConnected = _connector.IsConnected;
+        if (IsConnected)
+        {
+           await GetDeviceInfo();
+        }
+
     }
 
     [RelayCommand]
@@ -133,10 +130,10 @@ public partial class MainViewModel
     private bool CanInitialize => IsConnected && !IsInitialized;
 
     [RelayCommand(CanExecute = nameof(CanInitialize))]
-    private async void Initialize()
+    private async Task Initialize()
     {
-        // TODO: Implement initialization logic
-        // Set IsInitialized to true if initialization is successful
+
+
         IsInitialized = true;
     }
 
@@ -145,7 +142,7 @@ public partial class MainViewModel
     private bool CanStop => IsConnected; //&& IsStarted;
 
     [RelayCommand(CanExecute = nameof(CanStop))]
-    private async void Stop()
+    private async Task Stop()
     {
         //开始连续采集
         CurrentAction = "set stop Send data permanently";
@@ -161,21 +158,21 @@ public partial class MainViewModel
     }
 
     [RelayCommand]
-    private async void Restart()
+    private async Task Restart()
     {
         // TODO: Implement restart logic
         // This should stop the acquisition, reinitialize the device, and start the acquisition again
     }
 
     [RelayCommand]
-    private async void Login()
+    private async Task Login()
     {
         // TODO: Implement login logic
         // This should prompt the user for credentials and perform a login
     }
 
     [RelayCommand]
-    private async void GetDeviceInfo()
+    private async Task GetDeviceInfo()
     {
         // TODO: Implement get device info logic
         // This should retrieve device information and display it in DeviceInfo
@@ -186,7 +183,7 @@ public partial class MainViewModel
     }
 
     [RelayCommand(CanExecute = nameof(CanStart))]
-    private async void Start()
+    private async Task Start()
     {
         //开始连续采集
         CurrentAction = "set Send data permanently";
@@ -205,20 +202,30 @@ public partial class MainViewModel
 
     private void handerScanData(TelegramContent telegramContent)
     {
-      
+
+
         //在ui线程上执行
         Application.Current.Dispatcher.Invoke(() =>
         {
-            if (telegramContent.Payload.CommandConnent is LMDscandataModeCommand { OutputChannelList.Count: > 0 } dscandataModeCommand)
+            Console.WriteLine("收到数据:" + telegramContent.Payload.CommandConnent.GetType());
+            try
             {
-                ShowScanData(dscandataModeCommand);
+                if (telegramContent.Payload.CommandConnent is LMDscandataModeCommand { OutputChannelList.Count: > 0 } dscandataModeCommand)
+                {
+                    ShowScanData(dscandataModeCommand);
+                }
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+                throw;
             }
         });
         
     }
 
     [RelayCommand]
-    private async void GetData()
+    private async Task GetData()
     {
   
         CurrentAction = "start GetData";
@@ -230,12 +237,14 @@ public partial class MainViewModel
         }
 
         CurrentAction = "Ready";
-    }  
+    }
+
+
+    private Stopwatch _stopwatch = new Stopwatch();
     void ShowScanData(LMDscandataModeCommand lmDscandataModeCommand)
     {
         var lmdScandata = lmDscandataModeCommand.OutputChannelList[0];
         // _traceWrapper.WriteInformation(Newtonsoft.Json.JsonConvert.SerializeObject(
-
 
         // //缩放倍率
         // var scale = 0.1;
@@ -265,21 +274,53 @@ public partial class MainViewModel
         //     var angle = ((double)(lmdScandata.StartAngle.Value) + index * (lmdScandata.AngularStepSize.Value)) / 10000; // 角度，单位：度
         //     return dim * Math.Sin(angle * Math.PI / 180);
         // });
+        // var points = lmdScandata.DistDatas.Select((t, index) =>
+        // {
+        //     var dim = lmdScandata.ScaleFactor.Value * t.Value;
+        //     var angle = ((double)(lmdScandata.StartAngle.Value) + index * (lmdScandata.AngularStepSize.Value)) / 10000; // 角度，单位：度
+        //   angle += RotationAngle; // 应用旋转角度
+        //     return new { X = dim * Math.Cos(angle * Math.PI / 180), Y = dim * Math.Sin(angle * Math.PI / 180), Dim = dim };
+        // }).ToList();
 
-        var points = lmdScandata.DistDatas.Select((t, index) =>
+        //计算每秒fps _stopwatch.Elapsed.TotalSeconds 
+        var fps = 1000 / _stopwatch.Elapsed.TotalMicroseconds;
+        _stopwatch.Restart();
+        Console.WriteLine("ShowScanData:" + lmdScandata.DistDatas.Count + " ,OutputChannel8BitList:" + lmDscandataModeCommand.OutputChannel8BitList.Count
+            + " ,fps:" + fps);
+
+
+
+        for (var index = 0; index < lmdScandata.DistDatas.Count; index++)
         {
+            var t= lmdScandata.DistDatas[index];
             var dim = lmdScandata.ScaleFactor.Value * t.Value;
             var angle = ((double)(lmdScandata.StartAngle.Value) + index * (lmdScandata.AngularStepSize.Value)) / 10000; // 角度，单位：度
-          angle += _rotationAngle; // 应用旋转角度
-            return new { X = dim * Math.Cos(angle * Math.PI / 180), Y = dim * Math.Sin(angle * Math.PI / 180), Dim = dim };
-        });
+            angle += RotationAngle; // 应用旋转角度
+            // return new { X = dim * Math.Cos(angle * Math.PI / 180), Y = dim * Math.Sin(angle * Math.PI / 180), Dim = dim };
+            Xs[index] = dim * Math.Cos(angle * Math.PI / 180);
+            Ys[index] = dim * Math.Sin(angle * Math.PI / 180);
+            // Cs[index] = GetRssiColor(lmDscandataModeCommand.OutputChannel8BitList[0].DistDatas[index].Value);
+            Cs[index] = 255; //GetRssiColor(lmDscandataModeCommand.OutputChannel8BitList[0].DistDatas[index].Value);
+        }
+       
 
-        var x = points.Select(p => p.X);
-        var y = points.Select(p => p.Y);
-        CirclePoints.PlotColor(x, y, lmDscandataModeCommand.OutputChannel8BitList[0].DistDatas.Select(t=>t.Value));
-
+        // var x = points.Select(p => p.X);
+        // var y = points.Select(p => p.Y);
+        CirclePoints.PlotColor(
+                Xs.AsSpan(0, lmdScandata.DistDatas.Count).ToArray(),
+                Ys.AsSpan(0, lmdScandata.DistDatas.Count).ToArray(), 
+                Cs.AsSpan(0, lmdScandata.DistDatas.Count).ToArray());
 
     }
 
+    private double GetRssiColor(ushort value)
+    {
+        return value;
+    }
+
+    private double[] Xs = new double[1000];
+    private double[] Ys = new double[1000];
+    private double[] Cs = new double[1000];
     
+
 }
