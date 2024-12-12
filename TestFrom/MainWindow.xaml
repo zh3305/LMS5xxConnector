@@ -47,6 +47,24 @@
                     Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}" />
             <Button Content="Poll one Scan" Command="{Binding GetDataCommand}" Margin="5"
                     Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}" />
+    <CheckBox Content="保存数据" 
+              IsChecked="{Binding IsSaveData}" 
+              Margin="5"
+              Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}" />
+    
+    <Button Content="打开数据文件" 
+            Command="{Binding OpenDataFileCommand}" 
+            Margin="5" />
+    
+    <Button Content="开始回放" 
+            Command="{Binding StartPlaybackCommand}"
+            Margin="5" />
+    
+    <Button Content="停止回放" 
+            Command="{Binding StopPlaybackCommand}"
+            Margin="5" />
+
+
         </StackPanel>
         
         <d3:Chart Grid.Row="2" Grid.ColumnSpan="3" Grid.Column="0"  Name="plotter">

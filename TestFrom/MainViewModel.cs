@@ -10,6 +10,9 @@ using InteractiveDataDisplay.WPF;
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
+using System.IO;
+using System.Text;
+using System.Threading;
 
 namespace DistanceSensorAppDemo;
 
@@ -49,9 +52,15 @@ public partial class MainViewModel
 
     // 添加静态数组池
     private static readonly int MaxPointCount = 10000; // 根据实际最大点数调整
-    private  double[] _xsBuffer = new double[MaxPointCount];
-    private  double[] _ysBuffer = new double[MaxPointCount];
-    private  double[] _csBuffer = new double[MaxPointCount];
+
+    private double[] _xsBuffer = new double[MaxPointCount];
+    private double[] _ysBuffer = new double[MaxPointCount];
+    private double[] _csBuffer = new double[MaxPointCount];
+
+    [ObservableProperty] private bool _isSaveData;
+    private FileStream? _saveFileStream;
+    private string _currentSaveFilePath;
+    private CancellationTokenSource? _playbackCancellationTokenSource;
 
     public MainViewModel()
     {
@@ -74,6 +83,10 @@ public partial class MainViewModel
         });
         _logger = loggerFactory.CreateLogger<MainViewModel>();
         _connector = new Lms5XxConnector(loggerFactory.CreateLogger<Lms5XxConnector>());
+        _currentSaveFilePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            "LidarData",
+            $"LidarData_{DateTime.Now:yyyyMMdd_HHmmss}.dat");
     }
 
     public bool IsConnected
@@ -144,6 +157,14 @@ public partial class MainViewModel
         IsConnected = false;
         IsInitialized = false;
         IsStarted = false;
+
+        if (_saveFileStream != null)
+        {
+            await _saveFileStream.DisposeAsync();
+            _saveFileStream = null;
+        }
+
+        _playbackCancellationTokenSource?.Cancel();
     }
 
     private bool CanInitialize => IsConnected && !IsInitialized;
@@ -246,7 +267,13 @@ public partial class MainViewModel
                     OutputChannelList.Count: > 0
                 } scanDataCommand)
             {
-                // 使用 Task.Run 在后台处理数据
+                // 如果启用了保存，则保存数据
+                if (IsSaveData)
+                {
+                    SaveScanData(scanDataCommand);
+                }
+
+                // 现有的显示处理代码
                 _ = Task.Run(() => ShowScanData(scanDataCommand))
                     .ContinueWith(t =>
                     {
@@ -274,18 +301,14 @@ public partial class MainViewModel
         {
             _logger?.LogWarning("点数超出缓冲区大小: {PointCount} > {MaxPointCount}", pointCount, MaxPointCount);
             pointCount = MaxPointCount;
-            Array.Resize(ref _xsBuffer, pointCount);
-            Array.Resize(ref _ysBuffer, pointCount);
-            Array.Resize(ref _csBuffer, pointCount);
         }
 
         var processingStopwatch = new Stopwatch();
         processingStopwatch.Start();
 
-        // 检查是否支持SIMD 多线程会快一些
-        if (false&&System.Runtime.Intrinsics.X86.Sse2.IsSupported)
+        if (false && System.Runtime.Intrinsics.X86.Sse2.IsSupported)
         {
-            ProcessPointsSimd(lmdScandata, _xsBuffer, _ysBuffer, _csBuffer);
+            ProcessPointsSimd(lmdScandata, lmDscandataModeCommand, _xsBuffer, _ysBuffer, _csBuffer, pointCount);
             processingStopwatch.Stop();
             _logger?.LogDebug("处理扫描数据: 点数={Count}, 输出通道数={ChannelCount}, FPS={Fps:F2}, SIMD处理时间={ProcessingTime}Ticks",
                 pointCount,
@@ -295,7 +318,7 @@ public partial class MainViewModel
         }
         else
         {
-            ProcessPointsParallel(lmdScandata, _xsBuffer, _ysBuffer, _csBuffer);
+            ProcessPointsParallel(lmdScandata, lmDscandataModeCommand, _xsBuffer, _ysBuffer, _csBuffer, pointCount);
             processingStopwatch.Stop();
             _logger?.LogDebug("处理扫描数据: 点数={Count}, 输出通道数={ChannelCount}, FPS={Fps:F2}, 并行处理时间={ProcessingTime}ms",
                 pointCount,
@@ -308,7 +331,6 @@ public partial class MainViewModel
         {
             try
             {
-                // 使用 AsSpan 来避免数组复制
                 CirclePoints.PlotColor(
                     _xsBuffer.AsSpan(0, pointCount).ToArray(),
                     _ysBuffer.AsSpan(0, pointCount).ToArray(),
@@ -321,79 +343,86 @@ public partial class MainViewModel
         });
     }
 
-    private void ProcessPointsSimd(OutputChannel lmdScandata, double[] xs, double[] ys, double[] cs)
+    private void ProcessPointsParallel(OutputChannel lmdScandata, LMDscandataModeCommand scanDataCommand, 
+        double[] xs, double[] ys, double[] cs, int pointCount)
     {
         var scaleFactor = lmdScandata.ScaleFactor.Value;
         var startAngle = lmdScandata.StartAngle.Value / 10000.0;
         var angularStep = lmdScandata.AngularStepSize.Value / 10000.0;
-        var rotationAngleRad = RotationAngle * Math.PI / 180;
+        var hasRssiData = scanDataCommand.OutputChannel8BitList.Count > 0;
 
-        // 使用SIMD优化的并行处理
-        Parallel.For(0, xs.Length / 2, new ParallelOptions
-        {
-            MaxDegreeOfParallelism = Environment.ProcessorCount
-        }, i =>
-        {
-            var index = i * 2;
-            ProcessTwoPoints(index, lmdScandata, scaleFactor, startAngle, angularStep, rotationAngleRad, xs, ys, cs);
-        });
-
-        // 处理剩余的单个点
-        if (xs.Length % 2 != 0)
-        {
-            ProcessSinglePoint(xs.Length - 1, lmdScandata, scaleFactor, startAngle, angularStep, rotationAngleRad, xs,
-                ys, cs);
-        }
-    }
-
-    private void ProcessTwoPoints(int index, OutputChannel lmdScandata, double scaleFactor, double startAngle,
-        double angularStep, double rotationAngleRad, double[] xs, double[] ys, double[] cs)
-    {
-        for (int offset = 0; offset < 2 && (index + offset) < lmdScandata.DistDatas.Count; offset++)
-        {
-            var currentIndex = index + offset;
-            var dim = scaleFactor * lmdScandata.DistDatas[currentIndex].Value;
-            var angle = startAngle + currentIndex * angularStep + rotationAngleRad;
-
-            // 使用预计算的三角函数值
-            var angleRad = angle * Math.PI / 180;
-            xs[currentIndex] = dim * Math.Cos(angleRad);
-            ys[currentIndex] = dim * Math.Sin(angleRad);
-            cs[currentIndex] = 255;
-        }
-    }
-
-    private void ProcessSinglePoint(int index, OutputChannel lmdScandata, double scaleFactor, double startAngle,
-        double angularStep, double rotationAngleRad, double[] xs, double[] ys, double[] cs)
-    {
-        var dim = scaleFactor * lmdScandata.DistDatas[index].Value;
-        var angle = startAngle + index * angularStep + rotationAngleRad;
-        var angleRad = angle * Math.PI / 180;
-
-        xs[index] = dim * Math.Cos(angleRad);
-        ys[index] = dim * Math.Sin(angleRad);
-        cs[index] = 255;
-    }
-
-    private void ProcessPointsParallel(OutputChannel lmdScandata, double[] xs, double[] ys, double[] cs)
-    {
-        var scaleFactor = lmdScandata.ScaleFactor.Value;
-        var startAngle = lmdScandata.StartAngle.Value / 10000.0;
-        var angularStep = lmdScandata.AngularStepSize.Value / 10000.0;
-
-        Parallel.For(0, xs.Length, new ParallelOptions
+        Parallel.For(0, pointCount, new ParallelOptions
         {
             MaxDegreeOfParallelism = Environment.ProcessorCount
         }, i =>
         {
             var dim = scaleFactor * lmdScandata.DistDatas[i].Value;
+            // 先计算角度，然后加上旋转角度，最后转换为弧度
             var angle = startAngle + i * angularStep + RotationAngle;
-            var angleRad = angle * Math.PI / 180;
+            var angleRad = angle * Math.PI / 180.0;
 
             xs[i] = dim * Math.Cos(angleRad);
             ys[i] = dim * Math.Sin(angleRad);
-            cs[i] = 255;
+            cs[i] = hasRssiData ? scanDataCommand.OutputChannel8BitList[0].DistDatas[i].Value : 255;
         });
+    }
+
+    private void ProcessPointsSimd(OutputChannel lmdScandata, LMDscandataModeCommand scanDataCommand, 
+        double[] xs, double[] ys, double[] cs, int pointCount)
+    {
+        var scaleFactor = lmdScandata.ScaleFactor.Value;
+        var startAngle = lmdScandata.StartAngle.Value / 10000.0;
+        var angularStep = lmdScandata.AngularStepSize.Value / 10000.0;
+
+        // 使用SIMD优化的并行处理
+        Parallel.For(0, pointCount / 2, new ParallelOptions
+        {
+            MaxDegreeOfParallelism = Environment.ProcessorCount
+        }, i =>
+        {
+            var index = i * 2;
+            ProcessTwoPoints(index, lmdScandata, scanDataCommand, scaleFactor, startAngle, angularStep, xs, ys, cs);
+        });
+
+        // 处理剩余的单个点
+        if (pointCount % 2 != 0)
+        {
+            ProcessSinglePoint(pointCount - 1, lmdScandata, scanDataCommand, scaleFactor, startAngle, angularStep, xs, ys, cs);
+        }
+    }
+
+    private void ProcessTwoPoints(int index, OutputChannel lmdScandata, LMDscandataModeCommand scanDataCommand, 
+        double scaleFactor, double startAngle, double angularStep, 
+        double[] xs, double[] ys, double[] cs)
+    {
+        var hasRssiData = scanDataCommand.OutputChannel8BitList.Count > 0;
+
+        for (int offset = 0; offset < 2 && (index + offset) < lmdScandata.DistDatas.Count; offset++)
+        {
+            var currentIndex = index + offset;
+            var dim = scaleFactor * lmdScandata.DistDatas[currentIndex].Value;
+            var angle = startAngle + currentIndex * angularStep + RotationAngle;
+            var angleRad = angle * Math.PI / 180.0;
+
+            xs[currentIndex] = dim * Math.Cos(angleRad);
+            ys[currentIndex] = dim * Math.Sin(angleRad);
+            cs[currentIndex] = hasRssiData ? scanDataCommand.OutputChannel8BitList[0].DistDatas[currentIndex].Value : 255;
+        }
+    }
+
+    private void ProcessSinglePoint(int index, OutputChannel lmdScandata, LMDscandataModeCommand scanDataCommand, 
+        double scaleFactor, double startAngle, double angularStep, 
+        double[] xs, double[] ys, double[] cs)
+    {
+        var dim = scaleFactor * lmdScandata.DistDatas[index].Value;
+        var angle = startAngle + index * angularStep + RotationAngle;
+        var angleRad = angle * Math.PI / 180.0;
+
+        xs[index] = dim * Math.Cos(angleRad);
+        ys[index] = dim * Math.Sin(angleRad);
+        cs[index] = scanDataCommand.OutputChannel8BitList.Count > 0 
+            ? scanDataCommand.OutputChannel8BitList[0].DistDatas[index].Value 
+            : 255;
     }
 
     /// <summary>
@@ -427,5 +456,129 @@ public partial class MainViewModel
     private double GetRssiColor(ushort value)
     {
         return value;
+    }
+
+    private void SaveScanData(LMDscandataModeCommand scanDataCommand)
+    {
+        try
+        {
+            if (_saveFileStream == null)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(_currentSaveFilePath)!);
+                _saveFileStream = new FileStream(_currentSaveFilePath, FileMode.Create, FileAccess.Write);
+            }
+
+            // 序列化数据
+            using var writer = new BinaryWriter(_saveFileStream, Encoding.UTF8, true);
+            // 写入时间
+            writer.Write(DateTime.Now.Ticks);
+            // 写入数据点数量
+            writer.Write(scanDataCommand.OutputChannelList[0].DistDatas.Count);
+
+            // 写入距离数据
+            foreach (var data in scanDataCommand.OutputChannelList[0].DistDatas)
+            {
+                writer.Write(data.Value);
+            }
+
+            // 写入强度数据（如果有）
+            writer.Write(scanDataCommand.OutputChannel8BitList.Count > 0);
+            if (scanDataCommand.OutputChannel8BitList.Count > 0)
+            {
+                foreach (var data in scanDataCommand.OutputChannel8BitList[0].DistDatas)
+                {
+                    writer.Write(data.Value);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "保存扫描数据时发生错误");
+        }
+    }
+
+    [RelayCommand]
+    private async Task OpenDataFile()
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            DefaultExt = ".dat",
+            Filter = "Lidar Data Files (*.dat)|*.dat"
+        };
+
+        if (dialog.ShowDialog() == true)
+        {
+            _currentSaveFilePath = dialog.FileName;
+        }
+    }
+
+    [RelayCommand]
+    private async Task StartPlayback(CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(_currentSaveFilePath))
+        {
+            MessageBox.Show("请先选择数据文件");
+            return;
+        }
+
+        await _playbackCancellationTokenSource?.CancelAsync()!;
+        _playbackCancellationTokenSource = new CancellationTokenSource();
+
+        try
+        {
+            using var fileStream = new FileStream(_currentSaveFilePath, FileMode.Open, FileAccess.Read);
+            using var reader = new BinaryReader(fileStream);
+
+            while (fileStream.Position < fileStream.Length && !_playbackCancellationTokenSource.Token.IsCancellationRequested)
+            {
+                // 读取时间戳
+                var timestamp = reader.ReadInt64();
+                // 读取点数
+                var pointCount = reader.ReadInt32();
+
+                var scanDataCommand = new LMDscandataModeCommand();
+                var outputChannel = new OutputChannel();
+
+                // 读取距离数据
+                for (int i = 0; i < pointCount; i++)
+                {
+                    outputChannel.DistDatas.Add(new SickValue<ushort>()
+                    {
+                        Value = reader.ReadUInt16()
+                    });
+                }
+
+                scanDataCommand.OutputChannelList.Add(outputChannel);
+
+                // 读取是否有强度数据
+                var hasRssiData = reader.ReadBoolean();
+                if (hasRssiData)
+                {
+                    var rssiChannel = new OutputChannel();
+                    for (int i = 0; i < pointCount; i++)
+                    {
+                        rssiChannel.DistDatas.Add(new SickValue<ushort>()
+                        {
+                            Value = reader.ReadByte()
+                        });
+                    }
+                    scanDataCommand.OutputChannel8BitList.Add(rssiChannel);
+                }
+
+                await Task.Run(() => ShowScanData(scanDataCommand), cancellationToken);
+                await Task.Delay(50, cancellationToken); // 控制回放速度
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "回放数据时发生错误");
+            MessageBox.Show($"回放出错: {ex.Message}");
+        }
+    }
+
+    [RelayCommand]
+    private void StopPlayback()
+    {
+        _playbackCancellationTokenSource?.Cancel();
     }
 }
