@@ -8,20 +8,23 @@ using LMS5xxConnector.Telegram.CommandContents;
 using CommunityToolkit.Mvvm.Input;
 using InteractiveDataDisplay.WPF;
 using System.Diagnostics;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Console;
 
 namespace DistanceSensorAppDemo;
 
+// 添加自定义控制台格式化器类
 [ObservableObject]
 public partial class MainViewModel
 {
-    [ObservableProperty]
-    private string _ipAddress;
-    [ObservableProperty]
-    private string _statusText;
-    [ObservableProperty]
-    private double _rotationAngle=0;
-    [ObservableProperty]
-    private string _deviceInfo;
+    [ObservableProperty] private string _ipAddress;
+
+    [ObservableProperty] private string _statusText;
+
+    [ObservableProperty] private double _rotationAngle = 0;
+
+    [ObservableProperty] private string _deviceInfo;
+
     private bool _isConnected;
 
     [ObservableProperty]
@@ -33,19 +36,44 @@ public partial class MainViewModel
     [NotifyCanExecuteChangedFor(nameof(StartCommand))]
     [NotifyCanExecuteChangedFor(nameof(StopCommand))]
     private bool _isStarted;
-    [ObservableProperty]
-    private string _currentAction = "Ready";
-    public CircleMarkerGraph CirclePoints ;
+
+    [ObservableProperty] private string _currentAction = "Ready";
+
+    public CircleMarkerGraph CirclePoints;
     // [ObservableProperty]
     // public ObservableCollection<UIElement> charts = new ObservableCollection<UIElement>();
 
-    private readonly Lms5XxConnector _connector = new Lms5XxConnector();
+    private readonly Lms5XxConnector _connector;
+
+    private readonly ILogger<MainViewModel> _logger;
+
+    // 添加静态数组池
+    private static readonly int MaxPointCount = 10000; // 根据实际最大点数调整
+    private  double[] _xsBuffer = new double[MaxPointCount];
+    private  double[] _ysBuffer = new double[MaxPointCount];
+    private  double[] _csBuffer = new double[MaxPointCount];
+
     public MainViewModel()
     {
 #if DEBUG
         IpAddress = "192.168.1.231";
 #endif
-        _stopwatch.Start();
+        var loggerFactory = LoggerFactory.Create(builder =>
+        {
+            builder
+                .SetMinimumLevel(LogLevel.Trace)
+                .AddConsole(options =>
+                {
+                    options.FormatterName = "CustomFormatter";
+                    // options.TimestampFormat = "HH:mm:ss.fff";
+                })
+                .AddConsoleFormatter<CustomConsoleFormatter, ConsoleFormatterOptions>(options =>
+                {
+                    options.TimestampFormat = "HH:mm:ss.fff";
+                });
+        });
+        _logger = loggerFactory.CreateLogger<MainViewModel>();
+        _connector = new Lms5XxConnector(loggerFactory.CreateLogger<Lms5XxConnector>());
     }
 
     public bool IsConnected
@@ -73,12 +101,6 @@ public partial class MainViewModel
 
     public bool IsDisconnected => !IsConnected;
 
-
-    
-
-
-
-
     [RelayCommand]
     public async Task ConnectAsync()
     {
@@ -99,17 +121,15 @@ public partial class MainViewModel
         }
         catch (Exception e)
         {
-
-            MessageBox.Show("设备链接失败!"+e.Message);
+            MessageBox.Show("设备链接失败!" + e.Message);
             return;
         }
 
         IsConnected = _connector.IsConnected;
         if (IsConnected)
         {
-           await GetDeviceInfo();
+            await GetDeviceInfo();
         }
-
     }
 
     [RelayCommand]
@@ -124,7 +144,6 @@ public partial class MainViewModel
         IsConnected = false;
         IsInitialized = false;
         IsStarted = false;
-        
     }
 
     private bool CanInitialize => IsConnected && !IsInitialized;
@@ -132,8 +151,6 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(CanInitialize))]
     private async Task Initialize()
     {
-
-
         IsInitialized = true;
     }
 
@@ -148,7 +165,7 @@ public partial class MainViewModel
         CurrentAction = "set stop Send data permanently";
         if (await _connector.StopScanData() == StopStart.Stop)
         {
-            CurrentAction= "set stop Send data permanently success!";
+            CurrentAction = "set stop Send data permanently success!";
             IsStarted = false;
         }
         else
@@ -190,44 +207,18 @@ public partial class MainViewModel
         IsStarted = true;
         if (await _connector.StartScanData() == StopStart.Start)
         {
-            _connector.ReceivedHandles.AddOrUpdate((CommandTypes.Ssn, Commands.LMDscandata), handerScanData,
-                (tuple, action) => handerScanData);
+            _connector.ReceivedHandles.AddOrUpdate((CommandTypes.Ssn, Commands.LMDscandata), HanderScanData,
+                (tuple, action) => HanderScanData);
         }
         else
         {
             CurrentAction = "set Send data permanently failed!";
         }
-        
-    }
-
-    private void handerScanData(TelegramContent telegramContent)
-    {
-
-
-        //在ui线程上执行
-        Application.Current.Dispatcher.Invoke(() =>
-        {
-            Console.WriteLine("收到数据:" + telegramContent.Payload.CommandConnent.GetType());
-            try
-            {
-                if (telegramContent.Payload.CommandConnent is LMDscandataModeCommand { OutputChannelList.Count: > 0 } dscandataModeCommand)
-                {
-                    ShowScanData(dscandataModeCommand);
-                }
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e);
-                throw;
-            }
-        });
-        
     }
 
     [RelayCommand]
     private async Task GetData()
     {
-  
         CurrentAction = "start GetData";
         var dscandataModeCommand = await _connector.GetScanData();
 
@@ -239,88 +230,202 @@ public partial class MainViewModel
         CurrentAction = "Ready";
     }
 
+    private readonly Stopwatch _fpsStopwatch = new Stopwatch();
+    private int _frameCount = 0;
+    private double _currentFps = 0;
+    private readonly object _fpsLock = new object();
 
     private Stopwatch _stopwatch = new Stopwatch();
-    void ShowScanData(LMDscandataModeCommand lmDscandataModeCommand)
+
+    private void HanderScanData(TelegramContent telegramContent)
+    {
+        try
+        {
+            if (telegramContent.Payload.CommandConnent is LMDscandataModeCommand
+                {
+                    OutputChannelList.Count: > 0
+                } scanDataCommand)
+            {
+                // 使用 Task.Run 在后台处理数据
+                _ = Task.Run(() => ShowScanData(scanDataCommand))
+                    .ContinueWith(t =>
+                    {
+                        if (t.IsFaulted)
+                        {
+                            _logger?.LogError(t.Exception, "扫描数据处理失败");
+                        }
+                    }, TaskContinuationOptions.OnlyOnFaulted);
+            }
+        }
+        catch (Exception e)
+        {
+            _logger?.LogError(e, "处理扫描数据时发生错误");
+        }
+    }
+
+    private void ShowScanData(LMDscandataModeCommand lmDscandataModeCommand)
     {
         var lmdScandata = lmDscandataModeCommand.OutputChannelList[0];
-        // _traceWrapper.WriteInformation(Newtonsoft.Json.JsonConvert.SerializeObject(
+        UpdateFps();
 
-        // //缩放倍率
-        // var scale = 0.1;
-        // DataCanvasViewModel.UpdateData(lmdScandata.DistDatas.Select((t, index) =>
-        // {
-        //     var dim = lmdScandata.ScaleFactor.Value * t.Value;
-        //     var angle = ((double)(lmdScandata.StartAngle.Value) + index * (lmdScandata.AngularStepSize.Value)) /10000; // 角度，单位：度
-        //     var point = new
-        //     {
-        //         X = dim * Math.Cos(angle * Math.PI / 180),
-        //         Y = dim * Math.Sin(angle * Math.PI / 180),
-        //         Dim = dim,
-        //         // Color = ValueToColor(data.RSSI1.DataPoints[index],0, 65000, startColor, endCorol)
-        //         Color = GetRssiColor(lmDscandataModeCommand.OutputChannel8BitList[0].DistDatas[index].Value)
-        //     };
-        //     return new ScanPoint(250 + point.X * scale, 300 - point.Y * scale, point.Dim, point.Color);
-        // }));
-        // var x = lmdScandata.DistDatas.Select((t, index) =>
-        // {
-        //     var dim = lmdScandata.ScaleFactor.Value * t.Value;
-        //     var angle = ((double)(lmdScandata.StartAngle.Value) + index * (lmdScandata.AngularStepSize.Value)) / 10000; // 角度，单位：度
-        //     return dim * Math.Cos(angle * Math.PI / 180);
-        // });
-        // var y = lmdScandata.DistDatas.Select((t, index) =>
-        // {
-        //     var dim = lmdScandata.ScaleFactor.Value * t.Value;
-        //     var angle = ((double)(lmdScandata.StartAngle.Value) + index * (lmdScandata.AngularStepSize.Value)) / 10000; // 角度，单位：度
-        //     return dim * Math.Sin(angle * Math.PI / 180);
-        // });
-        // var points = lmdScandata.DistDatas.Select((t, index) =>
-        // {
-        //     var dim = lmdScandata.ScaleFactor.Value * t.Value;
-        //     var angle = ((double)(lmdScandata.StartAngle.Value) + index * (lmdScandata.AngularStepSize.Value)) / 10000; // 角度，单位：度
-        //   angle += RotationAngle; // 应用旋转角度
-        //     return new { X = dim * Math.Cos(angle * Math.PI / 180), Y = dim * Math.Sin(angle * Math.PI / 180), Dim = dim };
-        // }).ToList();
-
-        //计算每秒fps _stopwatch.Elapsed.TotalSeconds 
-        var fps = 1000 / _stopwatch.Elapsed.TotalMicroseconds;
-        _stopwatch.Restart();
-        Console.WriteLine("ShowScanData:" + lmdScandata.DistDatas.Count + " ,OutputChannel8BitList:" + lmDscandataModeCommand.OutputChannel8BitList.Count
-            + " ,fps:" + fps);
-
-
-
-        for (var index = 0; index < lmdScandata.DistDatas.Count; index++)
+        int pointCount = lmdScandata.DistDatas.Count;
+        // 确保不超过缓冲区大小
+        if (pointCount > MaxPointCount)
         {
-            var t= lmdScandata.DistDatas[index];
-            var dim = lmdScandata.ScaleFactor.Value * t.Value;
-            var angle = ((double)(lmdScandata.StartAngle.Value) + index * (lmdScandata.AngularStepSize.Value)) / 10000; // 角度，单位：度
-            angle += RotationAngle; // 应用旋转角度
-            // return new { X = dim * Math.Cos(angle * Math.PI / 180), Y = dim * Math.Sin(angle * Math.PI / 180), Dim = dim };
-            Xs[index] = dim * Math.Cos(angle * Math.PI / 180);
-            Ys[index] = dim * Math.Sin(angle * Math.PI / 180);
-            // Cs[index] = GetRssiColor(lmDscandataModeCommand.OutputChannel8BitList[0].DistDatas[index].Value);
-            Cs[index] = 255; //GetRssiColor(lmDscandataModeCommand.OutputChannel8BitList[0].DistDatas[index].Value);
+            _logger?.LogWarning("点数超出缓冲区大小: {PointCount} > {MaxPointCount}", pointCount, MaxPointCount);
+            pointCount = MaxPointCount;
+            Array.Resize(ref _xsBuffer, pointCount);
+            Array.Resize(ref _ysBuffer, pointCount);
+            Array.Resize(ref _csBuffer, pointCount);
         }
-       
 
-        // var x = points.Select(p => p.X);
-        // var y = points.Select(p => p.Y);
-        CirclePoints.PlotColor(
-                Xs.AsSpan(0, lmdScandata.DistDatas.Count).ToArray(),
-                Ys.AsSpan(0, lmdScandata.DistDatas.Count).ToArray(), 
-                Cs.AsSpan(0, lmdScandata.DistDatas.Count).ToArray());
+        var processingStopwatch = new Stopwatch();
+        processingStopwatch.Start();
 
+        // 检查是否支持SIMD 多线程会快一些
+        if (false&&System.Runtime.Intrinsics.X86.Sse2.IsSupported)
+        {
+            ProcessPointsSimd(lmdScandata, _xsBuffer, _ysBuffer, _csBuffer);
+            processingStopwatch.Stop();
+            _logger?.LogDebug("处理扫描数据: 点数={Count}, 输出通道数={ChannelCount}, FPS={Fps:F2}, SIMD处理时间={ProcessingTime}Ticks",
+                pointCount,
+                lmDscandataModeCommand.OutputChannel8BitList.Count,
+                _currentFps,
+                processingStopwatch.ElapsedTicks);
+        }
+        else
+        {
+            ProcessPointsParallel(lmdScandata, _xsBuffer, _ysBuffer, _csBuffer);
+            processingStopwatch.Stop();
+            _logger?.LogDebug("处理扫描数据: 点数={Count}, 输出通道数={ChannelCount}, FPS={Fps:F2}, 并行处理时间={ProcessingTime}ms",
+                pointCount,
+                lmDscandataModeCommand.OutputChannel8BitList.Count,
+                _currentFps,
+                processingStopwatch.ElapsedMilliseconds);
+        }
+
+        Application.Current.Dispatcher.Invoke(() =>
+        {
+            try
+            {
+                // 使用 AsSpan 来避免数组复制
+                CirclePoints.PlotColor(
+                    _xsBuffer.AsSpan(0, pointCount).ToArray(),
+                    _ysBuffer.AsSpan(0, pointCount).ToArray(),
+                    _csBuffer.AsSpan(0, pointCount).ToArray());
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "更新图形显示时发生错误");
+            }
+        });
     }
+
+    private void ProcessPointsSimd(OutputChannel lmdScandata, double[] xs, double[] ys, double[] cs)
+    {
+        var scaleFactor = lmdScandata.ScaleFactor.Value;
+        var startAngle = lmdScandata.StartAngle.Value / 10000.0;
+        var angularStep = lmdScandata.AngularStepSize.Value / 10000.0;
+        var rotationAngleRad = RotationAngle * Math.PI / 180;
+
+        // 使用SIMD优化的并行处理
+        Parallel.For(0, xs.Length / 2, new ParallelOptions
+        {
+            MaxDegreeOfParallelism = Environment.ProcessorCount
+        }, i =>
+        {
+            var index = i * 2;
+            ProcessTwoPoints(index, lmdScandata, scaleFactor, startAngle, angularStep, rotationAngleRad, xs, ys, cs);
+        });
+
+        // 处理剩余的单个点
+        if (xs.Length % 2 != 0)
+        {
+            ProcessSinglePoint(xs.Length - 1, lmdScandata, scaleFactor, startAngle, angularStep, rotationAngleRad, xs,
+                ys, cs);
+        }
+    }
+
+    private void ProcessTwoPoints(int index, OutputChannel lmdScandata, double scaleFactor, double startAngle,
+        double angularStep, double rotationAngleRad, double[] xs, double[] ys, double[] cs)
+    {
+        for (int offset = 0; offset < 2 && (index + offset) < lmdScandata.DistDatas.Count; offset++)
+        {
+            var currentIndex = index + offset;
+            var dim = scaleFactor * lmdScandata.DistDatas[currentIndex].Value;
+            var angle = startAngle + currentIndex * angularStep + rotationAngleRad;
+
+            // 使用预计算的三角函数值
+            var angleRad = angle * Math.PI / 180;
+            xs[currentIndex] = dim * Math.Cos(angleRad);
+            ys[currentIndex] = dim * Math.Sin(angleRad);
+            cs[currentIndex] = 255;
+        }
+    }
+
+    private void ProcessSinglePoint(int index, OutputChannel lmdScandata, double scaleFactor, double startAngle,
+        double angularStep, double rotationAngleRad, double[] xs, double[] ys, double[] cs)
+    {
+        var dim = scaleFactor * lmdScandata.DistDatas[index].Value;
+        var angle = startAngle + index * angularStep + rotationAngleRad;
+        var angleRad = angle * Math.PI / 180;
+
+        xs[index] = dim * Math.Cos(angleRad);
+        ys[index] = dim * Math.Sin(angleRad);
+        cs[index] = 255;
+    }
+
+    private void ProcessPointsParallel(OutputChannel lmdScandata, double[] xs, double[] ys, double[] cs)
+    {
+        var scaleFactor = lmdScandata.ScaleFactor.Value;
+        var startAngle = lmdScandata.StartAngle.Value / 10000.0;
+        var angularStep = lmdScandata.AngularStepSize.Value / 10000.0;
+
+        Parallel.For(0, xs.Length, new ParallelOptions
+        {
+            MaxDegreeOfParallelism = Environment.ProcessorCount
+        }, i =>
+        {
+            var dim = scaleFactor * lmdScandata.DistDatas[i].Value;
+            var angle = startAngle + i * angularStep + RotationAngle;
+            var angleRad = angle * Math.PI / 180;
+
+            xs[i] = dim * Math.Cos(angleRad);
+            ys[i] = dim * Math.Sin(angleRad);
+            cs[i] = 255;
+        });
+    }
+
+    /// <summary>
+    /// 更新FPS计算
+    /// </summary>
+    private void UpdateFps()
+    {
+        lock (_fpsLock)
+        {
+            if (!_fpsStopwatch.IsRunning)
+            {
+                _fpsStopwatch.Start();
+                _frameCount = 0;
+            }
+
+            _frameCount++;
+
+            // 每秒更新一次FPS
+            if (_fpsStopwatch.ElapsedMilliseconds >= 1000)
+            {
+                _currentFps = _frameCount * 1000.0 / _fpsStopwatch.ElapsedMilliseconds;
+                _frameCount = 0;
+                _fpsStopwatch.Restart();
+            }
+        }
+    }
+
+    // 添加属性用于外部访问FPS
+    public double CurrentFps => _currentFps;
 
     private double GetRssiColor(ushort value)
     {
         return value;
     }
-
-    private double[] Xs = new double[1000];
-    private double[] Ys = new double[1000];
-    private double[] Cs = new double[1000];
-    
-
 }

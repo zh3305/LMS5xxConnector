@@ -16,6 +16,8 @@ using System.Threading.Tasks;
 using System.Xml.Linq;
 using LMS5xxConnector.Telegram.CommandContainers;
 using LMS5xxConnector.Telegram.CommandContents;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LMS5xxConnector
 {
@@ -28,6 +30,7 @@ namespace LMS5xxConnector
         private NetworkStream _networkStream = default!;
 
         BinarySerializer _serializer = new BinarySerializer();
+
 
 
         /// <summary>
@@ -52,41 +55,49 @@ namespace LMS5xxConnector
         /// Gets the connection status of the underlying TCP client.
         /// </summary>
         public bool IsConnected => _tcpClient?.Value.Connected ?? false;
+        private readonly ILogger<Lms5XxConnector> _logger;
 
 
         /// <summary>
-        /// Connect to localhost at port 2111. 
+        /// 连接到本地回环地址的2111端口
         /// </summary>
         public async Task ConnectAsync()
         {
+            _logger?.LogInformation("开始连接到本地回环地址，端口：2111");
             await ConnectAsync(new IPEndPoint(IPAddress.Loopback, 2111));
         }
 
         /// <summary>
-        /// Connect to the specified <paramref name="remoteEndpoint"/>.
+        /// 连接到指定的远程终端点（字符串格式）
         /// </summary>
-        /// <param name="remoteEndpoint">The IP address and optional port of the end unit. Examples: "192.168.0.1", "192.168.0.1:502", "::1", "[::1]:502". The default port is 502.</param>
+        /// <param name="remoteEndpoint">远程终端点字符串，格式：IP:端口，例如："192.168.0.1:2111"</param>
         public async Task ConnectAsync(string remoteEndpoint)
         {
+            _logger?.LogInformation("开始解析并连接到终端点：{Endpoint}", remoteEndpoint);
+            
             if (!TcpUtils.TryParseEndpoint(remoteEndpoint.AsSpan(), out var parsedRemoteEndpoint))
-                throw new FormatException("An invalid IPEndPoint was specified.");
+            {
+                _logger?.LogError("无效的终端点格式：{Endpoint}", remoteEndpoint);
+                throw new FormatException("指定的终端点格式无效");
+            }
 
 #if NETSTANDARD2_0
          await   Connect(parsedRemoteEndpoint!);
 #endif
 
-#if NETSTANDARD2_1_OR_GREATER
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
             await ConnectAsync(parsedRemoteEndpoint);
 #endif
         }
 
 
         /// <summary>
-        /// Connect to the specified <paramref name="remoteIpAddress"/> at port 502.
+        /// 连接到指定IP地址的2111端口
         /// </summary>
-        /// <param name="remoteIpAddress">The IP address of the end unit. Example: IPAddress.Parse("192.168.0.1").</param>
+        /// <param name="remoteIpAddress">远程设备的IP地址</param>
         public async Task ConnectAsync(IPAddress remoteIpAddress)
         {
+            _logger?.LogInformation("开始连接到IP地址：{Address}，端口：2111", remoteIpAddress);
             await ConnectAsync(new IPEndPoint(remoteIpAddress, 2111));
         }
 
@@ -96,55 +107,96 @@ namespace LMS5xxConnector
         public event EventHandler<DataReceivedEventArgs> DataReceived;
 
 
-        public ConcurrentDictionary<(CommandTypes, Commands), Action<TelegramContent>> ReceivedHandles = new()
-        {
-        };
+        public ConcurrentDictionary<(CommandTypes, Commands), Action<TelegramContent>> ReceivedHandles = new() { };
 
 
         /// <summary>
-        /// Connect to the specified <paramref name="remoteEndpoint"/>.
+        /// 连接到指定的远程终端点
         /// </summary>
-        /// <param name="remoteEndpoint">The IP address and port of the end unit.</param>
+        /// <param name="remoteEndpoint">远程设备的IP地址和端口</param>
         public async Task ConnectAsync(IPEndPoint remoteEndpoint)
         {
-            await Initialize(new TcpClient(), remoteEndpoint);
+            _logger?.LogInformation("开始连接到远程设备 {Address}:{Port}", remoteEndpoint.Address, remoteEndpoint.Port);
+
+            try 
+            {
+                await Initialize(new TcpClient(), remoteEndpoint);
+                _logger?.LogInformation("成功连接到远程设备");
+            }
+            catch (TimeoutException)
+            {
+                _logger?.LogError("连接超时，请检查网络连接和设备状态");
+                throw;
+            }
+            catch (SocketException ex)
+            {
+                _logger?.LogError(ex, "网络连接失败：{Message}", ex.Message);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "连接过程中发生未知错误");
+                throw;
+            }
         }
 
+        /// <summary>
+        /// 初始化TCP连接和数据接收
+        /// </summary>
+        /// <param name="tcpClient">TCP客户端实例</param>
+        /// <param name="remoteEndpoint">远程终端点</param>
         private async Task Initialize(TcpClient tcpClient, IPEndPoint? remoteEndpoint)
         {
-            if (_tcpClient.HasValue && _tcpClient.Value.IsInternal)
+            // 如果存在旧的内部TCP客户端连接，先关闭它
+            if (_tcpClient is { IsInternal: true })
+            {
+                _logger.LogDebug("关闭旧的TCP连接");
                 _tcpClient.Value.Value.Close();
+            }
 
             var isInternal = remoteEndpoint is not null;
             _tcpClient = (tcpClient, isInternal);
 
-            if (remoteEndpoint is not null && !tcpClient.ConnectAsync(remoteEndpoint.Address, remoteEndpoint.Port)
-                    .Wait(ConnectTimeout))
-                throw new TimeoutException("Could not connect within the specified time.");
+            if (remoteEndpoint is not null)
+            {
+                _logger?.LogDebug("开始建立TCP连接，超时时间：{Timeout}ms", ConnectTimeout);
+                
+                // 尝试在指定超时时间内建立连接
+                if (!tcpClient.ConnectAsync(remoteEndpoint.Address, remoteEndpoint.Port)
+                        .Wait(ConnectTimeout))
+                {
+                    _logger?.LogError("TCP连接超时");
+                    throw new TimeoutException("无法在指定时间内建立连接");
+                }
+            }
 
-            // Why no method signature with NetworkStream only and then set the timeouts 
-            // in the Connect method like for the RTU client?
-            //
-            // "If a NetworkStream was associated with a TcpClient, the Close method will
-            //  close the TCP connection, but not dispose of the associated TcpClient."
-            // -> https://docs.microsoft.com/en-us/dotnet/api/system.net.sockets.networkstream.close?view=net-6.0
-
+            // 获取网络流
             _networkStream = tcpClient.GetStream();
 
+            // 设置内部连接的超时参数
             if (isInternal)
             {
+                _logger?.LogDebug("设置网络流超时参数 - 读取超时：{ReadTimeout}ms，写入超时：{WriteTimeout}ms", ReadTimeout, WriteTimeout);
+                    
                 _networkStream.ReadTimeout = ReadTimeout;
                 _networkStream.WriteTimeout = WriteTimeout;
             }
 
-
+            // 初始化取消令牌
             _tokenSource = new CancellationTokenSource();
             _token = _tokenSource.Token;
-            _token.Register(() => { _networkStream?.Close(); tcpClient.Close(); });
-           _= Task.Run(() => DataReceiver(_token), _token);
-            // // Wait for closed connection
-            // await networkReadTask;
-          
+            
+            // 注册连接关闭回调
+            _token.Register(() => 
+            { 
+                _logger?.LogDebug("正在关闭网络连接");
+                _networkStream?.Close(); 
+                tcpClient.Close(); 
+            });
+
+            // 启动数据接收任务
+            _logger?.LogDebug("启动数据接收任务");
+            _ = Task.Run(() => DataReceiver(_token), _token);
         }
 
         private async Task DataReceiver(CancellationToken token)
@@ -154,64 +206,51 @@ namespace LMS5xxConnector
                 try
                 {
                     var packetCoLaB = await _serializer.DeserializeAsync<PacketCoLaB>(_networkStream);
-                    // Console.WriteLine(JsonConvert.SerializeObject(packetCoLaB,
-                    //     new JsonSerializerSettings
-                    //     {
-                    //         Converters = new List<JsonConverter> { new StringEnumConverter() }
-                    //     }));
                     if (packetCoLaB.Content == null)
                     {
-                        Console.WriteLine("-----------  数据包解析错误------------------------");
+                        _logger?.LogWarning("数据包解析错误");
                         continue;
                     }
 
-                    //处理包数据
-                    // HandlerTelegram(packetCoLaB);
-                    if (ReceivedHandles.TryGetValue(
-                            (packetCoLaB.Content.CommandTypes, packetCoLaB.Content.Payload.Command), out var handle))
+                    var commandKey = (packetCoLaB.Content.CommandTypes, packetCoLaB.Content.Payload.Command);
+                    if (ReceivedHandles.TryGetValue(commandKey, out var handle))
                     {
-                        handle(packetCoLaB.Content);
+                        if (IsLongRunningHandler(commandKey))
+                        {
+                            _ = Task.Run(() => handle(packetCoLaB.Content), token)
+                                .ContinueWith(t => 
+                                {
+                                    if (t.IsFaulted)
+                                    {
+                                        _logger?.LogError(t.Exception, "处理器执行失败");
+                                    }
+                                }, TaskContinuationOptions.OnlyOnFaulted);
+                        }
+                        else
+                        {
+                            handle(packetCoLaB.Content);
+                        }
                     }
                 }
-                finally
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
+                    _logger?.LogError(ex, "数据接收错误");
+                    if (ex is IOException || ex is SocketException)
+                    {
+                        break;
+                    }
                 }
-                // catch (AggregateException)
-                // {
-                //     Logger?.Invoke($"{_header}data receiver canceled, disconnected");
-                //     break;
-                // }
-                // catch (IOException)
-                // {
-                //     Logger?.Invoke($"{_header}data receiver canceled, disconnected");
-                //     break;
-                // }
-                // catch (SocketException)
-                // {
-                //     Logger?.Invoke($"{_header}data receiver canceled, disconnected");
-                //     break;
-                // }
-                // catch (TaskCanceledException)
-                // {
-                //     Logger?.Invoke($"{_header}data receiver task canceled, disconnected");
-                //     break;
-                // }
-                // catch (OperationCanceledException)
-                // {
-                //     Logger?.Invoke($"{_header}data receiver operation canceled, disconnected");
-                //     break;
-                // }
-                // catch (ObjectDisposedException)
-                // {
-                //     Logger?.Invoke($"{_header}data receiver canceled due to disposal, disconnected");
-                //     break;
-                // }
-                // catch (Exception e)
-                // {
-                //     Logger?.Invoke($"{_header}data receiver exception:{Environment.NewLine}{e}{Environment.NewLine}");
-                //     break;
-                // }
             }
+        }
+
+        private bool IsLongRunningHandler((CommandTypes, Commands) commandKey)
+        {
+            return commandKey switch
+            {
+                (CommandTypes.Sra, Commands.LMDscandata) => true,
+                (CommandTypes.Sea, Commands.LMDscandata) => true,
+                _ => false
+            };
         }
 
         /// <summary>
@@ -281,15 +320,15 @@ namespace LMS5xxConnector
             if (ReceivedHandles.TryAdd((CommandTypes.Sra, Commands.LMDscandata),
                     (telegramContent) =>
                     {
-                        ReceivedHandles.Remove((CommandTypes.Sra, Commands.LMDscandata),out _); 
+                        ReceivedHandles.Remove((CommandTypes.Sra, Commands.LMDscandata), out _);
                         tcs.TrySetResult((LMDscandataModeCommand)telegramContent.Payload.CommandConnent);
                     }))
             {
                 await Send(telegram);
                 cancellationTokenSource.CancelAfter(3000);//3秒后取消
                 cancellationTokenSource.Token.Register(() => tcs.TrySetCanceled());
-                
-                return  await tcs.Task;
+
+                return await tcs.Task;
             }
             else
             {
@@ -318,24 +357,24 @@ namespace LMS5xxConnector
             if (ReceivedHandles.TryAdd((CommandTypes.Sea, Commands.LMDscandata),
                     (telegramContent) =>
                     {
-                        ReceivedHandles.Remove((CommandTypes.Sea, Commands.LMDscandata),out _); 
-                        
+                        ReceivedHandles.Remove((CommandTypes.Sea, Commands.LMDscandata), out _);
+
                         tcs.TrySetResult(((ConfirmationRequestModeCommandBase)telegramContent.Payload.CommandConnent).StopStart);
                     }))
             {
                 await Send(telegram);
                 cancellationTokenSource.CancelAfter(3000);//3秒后取消
                 cancellationTokenSource.Token.Register(() => tcs.TrySetCanceled());
-                
-                return  await tcs.Task;
+
+                return await tcs.Task;
             }
             else
             {
                 //还有上次未完成的相同命令
                 Console.WriteLine("还有上次未完成的相同命令");
                 //抛出重复执行异常
-                throw  new Exception("还有上次未完成的相同命令");
-                
+                throw new Exception("还有上次未完成的相同命令");
+
             }
 
         }
@@ -358,24 +397,24 @@ namespace LMS5xxConnector
             if (ReceivedHandles.TryAdd((CommandTypes.Sea, Commands.LMDscandata),
                     (telegramContent) =>
                     {
-                        ReceivedHandles.Remove((CommandTypes.Sea, Commands.LMDscandata),out _); 
-                        
+                        ReceivedHandles.Remove((CommandTypes.Sea, Commands.LMDscandata), out _);
+
                         tcs.TrySetResult(((ConfirmationRequestModeCommandBase)telegramContent.Payload.CommandConnent).StopStart);
                     }))
             {
                 await Send(telegram);
                 cancellationTokenSource.CancelAfter(3000);//3秒后取消
                 cancellationTokenSource.Token.Register(() => tcs.TrySetCanceled());
-                
-                return  await tcs.Task;
+
+                return await tcs.Task;
             }
             else
             {
                 //还有上次未完成的相同命令
                 Console.WriteLine("还有上次未完成的相同命令");
                 //抛出重复执行异常
-                throw  new Exception("还有上次未完成的相同命令");
-                
+                throw new Exception("还有上次未完成的相同命令");
+
             }
 
         }
@@ -394,15 +433,15 @@ namespace LMS5xxConnector
             if (ReceivedHandles.TryAdd((CommandTypes.Sra, Commands.DeviceIdent),
                     (telegramContent) =>
                     {
-                        ReceivedHandles.Remove((CommandTypes.Sra, Commands.DeviceIdent),out _); 
+                        ReceivedHandles.Remove((CommandTypes.Sra, Commands.DeviceIdent), out _);
                         tcs.TrySetResult((UniqueIdentificationModeCommand)telegramContent.Payload.CommandConnent);
                     }))
             {
                 await Send(telegram);
                 cancellationTokenSource.CancelAfter(3000);//3秒后取消
                 cancellationTokenSource.Token.Register(() => tcs.TrySetCanceled());
-                
-                return  await tcs.Task;
+
+                return await tcs.Task;
             }
             else
             {
@@ -448,6 +487,18 @@ namespace LMS5xxConnector
         //是否调试输出
         public bool IsDebug { get; set; } = true;
         readonly ASCIIEncoding _encoding = new ASCIIEncoding();
+
+        public Lms5XxConnector(ILogger<Lms5XxConnector>? logger = null)
+        {
+
+            _logger = logger ?? LoggerFactory.Create(builder =>
+            {
+                builder
+                    .SetMinimumLevel(LogLevel.Trace)
+                    .AddConsole()
+                    ;
+            }).CreateLogger<Lms5XxConnector>();
+        }
 
     }
 }

@@ -12,7 +12,7 @@ namespace LMS5xxConnector.Utils
 #if NETSTANDARD2_0
         public static bool TryParseEndpoint(ReadOnlySpan<char> value, out IPEndPoint? result)
 #endif
-#if NETSTANDARD2_1_OR_GREATER
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
         public static bool TryParseEndpoint(ReadOnlySpan<char> value, [NotNullWhen(true)] out IPEndPoint? result)
 #endif
         {
