@@ -205,7 +205,7 @@ namespace LMS5xxConnector
             {
                 try
                 {
-                    var packetCoLaB = await _serializer.DeserializeAsync<PacketCoLaB>(_networkStream);
+                    var packetCoLaB = await _serializer.DeserializeAsync<CoLaA>(_networkStream);
                     if (packetCoLaB.Content == null)
                     {
                         _logger?.LogWarning("数据包解析错误");
@@ -269,14 +269,14 @@ namespace LMS5xxConnector
                 _tcpClient = null;
         }
 
-        // async Task TransceiveFrameAsync(PacketCoLaB packetCoLaB, CancellationToken cancellationToken = default)
+        // async Task TransceiveFrameAsync(PacketCoLaA packetCoLaB, CancellationToken cancellationToken = default)
         // {
         //     await _serializer.SerializeAsync(_networkStream, packetCoLaB, cancellationToken: cancellationToken).ConfigureAwait(false);
         // }
 
-        public async Task SendTelegram(PacketCoLaB packetCoLaB, CancellationToken cancellationToken = default)
+        public async Task SendTelegram(CoLaA packetCoLaA, CancellationToken cancellationToken = default)
         {
-            await _serializer.SerializeAsync(_networkStream, packetCoLaB, cancellationToken: cancellationToken)
+            await _serializer.SerializeAsync(_networkStream, packetCoLaA, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -465,7 +465,7 @@ namespace LMS5xxConnector
             }
 
             if (!IsConnected) throw new IOException("Not connected to the server; use Connect() first.");
-            var telegram = new PacketCoLaB
+            var telegram = new CoLaA
             {
                 Content = data
             };

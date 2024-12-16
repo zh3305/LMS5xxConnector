@@ -30,7 +30,7 @@ public class Tests
                 }
             }
         };
-        var packet = new PacketCoLaB
+        var packet = new CoLaA
         {
             Content = telegram
         };

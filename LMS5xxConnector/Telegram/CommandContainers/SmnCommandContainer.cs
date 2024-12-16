@@ -10,5 +10,8 @@ namespace LMS5xxConnector.Telegram.CommandContainers
     }
     public class SrnCommandContainer : CommandContainerBase
     {
+    }  
+    public class SwnCommandContainer : CommandContainerBase
+    {
     }
 }
