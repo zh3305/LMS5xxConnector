@@ -1,7 +1,4 @@
-﻿using System.Security.Cryptography;
-using System.Xml;
-using System.ComponentModel;
-using BinarySerialization;
+﻿using BinarySerialization;
 using LMS5xxConnector.Telegram.CommandContainers;
 
 namespace LMS5xxConnector.Telegram

@@ -7,13 +7,11 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
-using System.Net.Security;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Xml.Linq;
 using LMS5xxConnector.Telegram.CommandContainers;
 using LMS5xxConnector.Telegram.CommandContents;
 using Microsoft.Extensions.Logging;
@@ -490,14 +488,14 @@ namespace LMS5xxConnector
 
         public Lms5XxConnector(ILogger<Lms5XxConnector>? logger = null)
         {
-
-            _logger = logger ?? LoggerFactory.Create(builder =>
-            {
-                builder
-                    .SetMinimumLevel(LogLevel.Trace)
-                    .AddConsole()
-                    ;
-            }).CreateLogger<Lms5XxConnector>();
+            _logger=NullLoggerFactory.Instance.CreateLogger<Lms5XxConnector>();
+            // _logger = logger ?? LoggerFactory.Create(builder =>
+            // {
+            //     builder
+            //         .SetMinimumLevel(LogLevel.Trace)
+            //         .AddConsole()
+            //         ;
+            // }).CreateLogger<Lms5XxConnector>();
         }
 
     }
