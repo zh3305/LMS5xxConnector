@@ -467,18 +467,27 @@ namespace LMS5xxConnector
             {
                 Content = data
             };
-            if (IsDebug)
+            try
             {
-                var stream = new MemoryStream();
-                await _serializer.SerializeAsync(stream, telegram, cancellationToken: _token);
-                var rbuffer = stream.ToArray();
-                //byte[] 转  ASCII 字符串
-                Console.WriteLine("SendTelegram:" + _encoding.GetString(rbuffer));
-                await _networkStream.WriteAsync(rbuffer, _token);
+                
+                if (IsDebug)
+                {
+                    var stream = new MemoryStream();
+                    await _serializer.SerializeAsync(stream, telegram, cancellationToken: _token);
+                    var rbuffer = stream.ToArray();
+                    //byte[] 转  ASCII 字符串
+                    Console.WriteLine("SendTelegram:" + _encoding.GetString(rbuffer));
+                    await _networkStream.WriteAsync(rbuffer, _token);
+                }
+                else
+                {
+                    await _serializer.SerializeAsync(_networkStream, telegram, cancellationToken: _token);
+                }
             }
-            else
+            catch (Exception e)
             {
-                await _serializer.SerializeAsync(_networkStream, telegram, cancellationToken: _token);
+                _logger.LogError(e,"序列化出错!");
+                throw;
             }
         }
 
@@ -488,7 +497,7 @@ namespace LMS5xxConnector
 
         public Lms5XxConnector(ILogger<Lms5XxConnector>? logger = null)
         {
-            _logger=NullLoggerFactory.Instance.CreateLogger<Lms5XxConnector>();
+            _logger=logger ?? NullLoggerFactory.Instance.CreateLogger<Lms5XxConnector>();
             // _logger = logger ?? LoggerFactory.Create(builder =>
             // {
             //     builder

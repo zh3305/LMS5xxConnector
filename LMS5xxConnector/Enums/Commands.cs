@@ -34,7 +34,7 @@ namespace LMS5xxConnector
         /// <summary>
         /// 获取设备信息。
         /// </summary>
-        [SerializeAsEnum("0")]
+        [SerializeAsEnum("DeviceIdent")]
         DeviceIdent, // DeviceIdent == "0"
 
         /// <summary>

@@ -8,10 +8,4 @@ namespace LMS5xxConnector.Telegram.CommandContainers
         [Subtype("Command", Commands.SetAccessMode, typeof(SetAccessModeCommand))]
         public override CommandBase CommandConnent { get; set; }
     }
-    public class SrnCommandContainer : CommandContainerBase
-    {
-    }  
-    public class SwnCommandContainer : CommandContainerBase
-    {
-    }
 }

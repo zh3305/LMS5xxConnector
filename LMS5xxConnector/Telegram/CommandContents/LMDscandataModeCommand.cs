@@ -3,6 +3,7 @@ using BinarySerialization;
 
 namespace LMS5xxConnector.Telegram.CommandContents
 {
+    using LMS5xxConnector.Enums;
     using System;
     using System.Collections.Generic;
 
@@ -39,7 +40,7 @@ namespace LMS5xxConnector.Telegram.CommandContents
         /// 设备状态
         /// </summary>
         [FieldOrder(3)]
-        [SerializeAs(SerializedType.TerminatedString, StringTerminator = (char)0x20)]
+        // [SerializeAs(SerializedType.TerminatedString, StringTerminator = (char)0x20)]
         public DeviceStatusEnum DeviceStatus { get; set; }
 
         /// <summary>
@@ -71,7 +72,7 @@ namespace LMS5xxConnector.Telegram.CommandContents
         /// </summary>
         [FieldOrder(8)]
         [SerializeAs(SerializedType.TerminatedString, StringTerminator = (char)0x20)]
-        public InputStatusEnum InputStatus { get; set; }
+        public string InputStatus { get; set; }
 
         /// <summary>
         /// 数字输入状态 2
@@ -85,7 +86,7 @@ namespace LMS5xxConnector.Telegram.CommandContents
         /// </summary>
         [FieldOrder(10)]
         [SerializeAs(SerializedType.TerminatedString, StringTerminator = (char)0x20)]
-        public OutputStatusEnum OutputStatus { get; set; }
+        public string OutputStatus { get; set; }
 
         /// <summary>
         /// 数字输出状态 2
@@ -187,219 +188,5 @@ namespace LMS5xxConnector.Telegram.CommandContents
         /// </summary>
         [FieldOrder(25)]
         public EventInfo EventInfo { get; set; }
-    }
-    /// <summary>
-    /// 表示数字输出状态的枚举
-    /// </summary>
-    public enum OutputStatusEnum
-    {
-        /// <summary>
-        /// 所有输出低电平
-        /// 长度为2位: "0 0"
-        /// 适用于所有传感器
-        /// </summary>
-        [SerializeAsEnum("0 0")]
-        AllOutputsLow = 0,
-
-        /// <summary>
-        /// 所有输出高电平
-        /// 长度为2位: "F 0"
-        /// 适用于 TIM5xx, TIM7xx, LDxxx
-        /// </summary>
-        [SerializeAsEnum("F 0")]
-        AllOutputsHigh_TIM5xx_TIM7xx_LDxxx = 0xF0,
-
-        /// <summary>
-        /// 所有输出高电平
-        /// 长度为2位: "2 0"
-        /// 适用于 TIM24x
-        /// </summary>
-        [SerializeAsEnum("2 0")]
-        AllOutputsHigh_TIM24x = 0x20,
-
-        /// <summary>
-        /// 所有内部输出高电平
-        /// 长度为2位: "3F 0"
-        /// 适用于 LMS1xx
-        /// </summary>
-        [SerializeAsEnum("3F 0")]
-        AllInternalOutputsHigh_LMS1xx = 0x3F00,
-
-        /// <summary>
-        /// 所有输出高电平（包括外部输出）
-        /// 长度为4位: "07 FF"
-        /// 适用于 LMS1xx
-        /// </summary>
-        [SerializeAsEnum("07 FF")]
-        AllOutputsHighIncludingExternal_LMS1xx = 0x07FF,
-
-        /// <summary>
-        /// 所有内部输出高电平
-        /// 长度为2位: "3F 0"
-        /// 适用于 LMS5xx
-        /// </summary>
-        [SerializeAsEnum("3F 0")]
-        AllInternalOutputsHigh_LMS5xx = 0x3F00,
-
-        /// <summary>
-        /// 所有输出高电平（包括外部输出）
-        /// 长度为4位: "3F FF"
-        /// 适用于 LMS5xx
-        /// </summary>
-        [SerializeAsEnum("3F FF")]
-        AllOutputsHighIncludingExternal_LMS5xx = 0x3FFF,
-
-        /// <summary>
-        /// 输出1高电平
-        /// 长度为2位: "1 0"
-        /// 适用于 LMS4000
-        /// </summary>
-        [SerializeAsEnum("1 0")]
-        Output1High_LMS4000 = 0x10,
-
-        /// <summary>
-        /// 输出2高电平
-        /// 长度为2位: "2 0"
-        /// 适用于 LMS4000
-        /// </summary>
-        [SerializeAsEnum("2 0")]
-        Output2High_LMS4000 = 0x20,
-
-        /// <summary>
-        /// 输出1和输出2都高电平
-        /// 长度为2位: "3 0"
-        /// 适用于 LMS4000
-        /// </summary>
-        [SerializeAsEnum("3 0")]
-        Output1And2High_LMS4000 = 0x30,
-
-        /// <summary>
-        /// 输出4高电平
-        /// 长度为2位: "8 0"
-        /// 适用于 LMS4000
-        /// </summary>
-        [SerializeAsEnum("8 0")]
-        Output4High_LMS4000 = 0x80,
-
-        /// <summary>
-        /// 输出1和输出4都高电平
-        /// 长度为2位: "9 0"
-        /// 适用于 LMS4000
-        /// </summary>
-        [SerializeAsEnum("9 0")]
-        Output1And4High_LMS4000 = 0x90,
-
-        /// <summary>
-        /// 输出2和输出4都高电平
-        /// 长度为2位: "A 0"
-        /// 适用于 LMS4000
-        /// </summary>
-        [SerializeAsEnum("A 0")]
-        Output2And4High_LMS4000 = 0xA0,
-
-        /// <summary>
-        /// 输出1、输出2和输出4都高电平
-        /// 长度为2位: "B 0"
-        /// 适用于 LMS4000
-        /// </summary>
-        [SerializeAsEnum("B 0")]
-        Output1And2And4High_LMS4000 = 0xB0,
-
-    }
-    /// <summary>
-    /// 表示数字输入状态的枚举
-    /// </summary>
-    public enum InputStatusEnum
-    {
-        /// <summary>
-        /// 所有输入低电平
-        /// 长度为2位: "0 0"
-        /// 适用于 LMS1xx, LMS5xx, LMS4000, TiM24x, MRS 1000, LMS1000, MRS6000, LRS4000
-        /// </summary>
-        [SerializeAsEnum("00")]
-        AllLow = 0,
-
-        /// <summary>
-        /// 所有输入高电平
-        /// 长度为2位: "3 0"
-        /// 适用于 LMS1xx, LMS5xx, LMS4000
-        /// </summary>
-        [SerializeAsEnum("30")]
-        AllHigh = 3,
-
-        /// <summary>
-        /// LMS4000 输入1高电平，输入2低电平
-        /// 长度为2位: "1 0"
-        /// 仅适用于 LMS4000
-        /// </summary>
-        [SerializeAsEnum("10")]
-        Input1HighLMS4000 = 1,
-
-        /// <summary>
-        /// LMS4000 输入1低电平，输入2高电平
-        /// 长度为2位: "2 0"
-        /// 仅适用于 LMS4000
-        /// </summary>
-        [SerializeAsEnum("20")]
-        Input2HighLMS4000 = 2,
-
-        /// <summary>
-        /// LMS4000 输入1和输入2都高电平
-        /// 长度为2位: "3 0"
-        /// 仅适用于 LMS4000
-        /// </summary>
-        [SerializeAsEnum("30")]
-        Input1And2HighLMS4000 = 3
-    }
-    /// <summary>
-    /// 表示设备状态的枚举
-    /// </summary>
-    public enum DeviceStatusEnum
-    {
-        /// <summary>
-        /// 所有设备正常运行
-        /// 长度为2位: "0 0"
-        /// </summary>
-        [SerializeAsEnum("00")]
-        AllOk = 0,
-
-        /// <summary>
-        /// 所有设备错误
-        /// 长度为2位: "0 1"
-        /// </summary>
-        [SerializeAsEnum("01")]
-        AllError = 1,
-
-        /// <summary>
-        /// LMS1xx 和 LMS5xx 污染警告
-        /// 长度为2位: "0 2"
-        /// 仅适用于 LMS1xx 和 LMS5xx
-        /// </summary>
-        [SerializeAsEnum("02")]
-        PollutionWarningLMS1xxLMS5xx = 2,
-
-        /// <summary>
-        /// LMS1xx 和 LMS5xx 污染错误，无设备错误
-        /// 长度为2位: "0 4"
-        /// 仅适用于 LMS1xx 和 LMS5xx
-        /// </summary>
-        [SerializeAsEnum("04")]
-        PollutionErrorNoDeviceErrorLMS1xxLMS5xx = 4,
-
-        /// <summary>
-        /// LMS1xx 和 LMS5xx 污染错误，伴有设备错误
-        /// 长度为2位: "0 5"
-        /// 仅适用于 LMS1xx 和 LMS5xx
-        /// </summary>
-        [SerializeAsEnum("05")]
-        PollutionErrorWithDeviceErrorLMS1xxLMS5xx = 5,
-
-        /// <summary>
-        /// LMS4000 激光关闭时的数据输出
-        /// 长度为2位: "1 0"
-        /// 仅适用于 LMS4000
-        /// </summary>
-        [SerializeAsEnum("10")]
-        DataOutputDuringLaserOffLMS4000 = 10
     }
 }
