@@ -85,6 +85,8 @@ namespace LMS5xxConnector
         /// <summary>
         /// 错误代码。
         /// </summary>
-        ErrorCode
+        ErrorCode,
+
+        LMPoutputRange
     }
 }

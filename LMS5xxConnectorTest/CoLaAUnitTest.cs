@@ -14,7 +14,7 @@ using System.Collections.Generic;
 
 namespace LMS5xxConnectorTest;
 
-public class Tests
+public class CoLaAUnitTest
 {
     private Lms5XxConnector _connector;
     private TcpListener _tcpServer;
