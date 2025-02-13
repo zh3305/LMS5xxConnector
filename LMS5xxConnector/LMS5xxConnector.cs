@@ -55,6 +55,10 @@ namespace LMS5xxConnector
         public bool IsConnected => _tcpClient?.Value.Connected ?? false;
         private readonly ILogger<Lms5XxConnector> _logger;
 
+        private string _radarName;
+        private readonly string _debugDataPath;
+        private readonly object _fileLock = new object();
+
 
         /// <summary>
         /// 连接到本地回环地址的2111端口
@@ -199,11 +203,77 @@ namespace LMS5xxConnector
 
         private async Task DataReceiver(CancellationToken token)
         {
+            Directory.CreateDirectory("DebugData");
+            var buffer = new byte[8192]; // 8KB 缓冲区
+
             while (!token.IsCancellationRequested && _tcpClient is { Value: { Connected: true } })
             {
+                CoLaA? packetCoLaB;
                 try
                 {
-                    var packetCoLaB = await _serializer.DeserializeAsync<CoLaA>(_networkStream);
+                    if (IsDebug)
+                    {
+                        // 使用内存流先捕获原始数据
+                        using var memoryStream = new MemoryStream();
+                        int bytesRead;
+
+                        // 读取STX标记(0x02)
+                        while ((bytesRead = await _networkStream.ReadAsync(buffer, 0, 1, token)) > 0)
+                        {
+                            if (buffer[0] == 0x02)
+                            {
+                                memoryStream.WriteByte(buffer[0]);
+                                break;
+                            }
+                        }
+
+                        // 读取直到ETX标记(0x03)
+                        while ((bytesRead = await _networkStream.ReadAsync(buffer, 0, 1, token)) > 0)
+                        {
+                            memoryStream.WriteByte(buffer[0]);
+                            if (buffer[0] == 0x03)
+                            {
+                                break;
+                            }
+                        }
+
+                        // 记录原始数据
+                        var rawData = new RadarRawData
+                        {
+                            Timestamp = DateTime.Now,
+                            RadarName = _radarName,
+                            RawBytes = memoryStream.ToArray()
+                        };
+
+                        // 将流位置重置到开始
+                        memoryStream.Position = 0;
+
+                        // 反序列化数据
+                        packetCoLaB = await _serializer.DeserializeAsync<CoLaA>(memoryStream);
+
+                        if (IsDebug)
+                        {
+                            // 保存原始数据
+                            lock (_fileLock)
+                            {
+                                using var writer = new BinaryWriter(File.Open(_debugDataPath, FileMode.Append,
+                                    FileAccess.Write));
+                                // 写入时间戳
+                                writer.Write(rawData.Timestamp.ToBinary());
+                                // 写入雷达名称
+                                writer.Write(_radarName);
+                                // 写入数据长度
+                                writer.Write(rawData.RawBytes.Length);
+                                // 写入原始数据
+                                writer.Write(rawData.RawBytes);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        packetCoLaB = await _serializer.DeserializeAsync<CoLaA>(_networkStream);
+                    }
+
                     if (packetCoLaB.Content == null)
                     {
                         _logger?.LogWarning("数据包解析错误");
@@ -492,19 +562,46 @@ namespace LMS5xxConnector
         }
 
         //是否调试输出
-        public bool IsDebug { get; set; } = true;
+        public bool IsDebug { get; set; } = false;
         readonly ASCIIEncoding _encoding = new ASCIIEncoding();
 
-        public Lms5XxConnector(ILogger<Lms5XxConnector>? logger = null)
+        public Lms5XxConnector(ILogger<Lms5XxConnector> logger, string radarName = "Unknown")
         {
-            _logger=logger ?? NullLoggerFactory.Instance.CreateLogger<Lms5XxConnector>();
-            // _logger = logger ?? LoggerFactory.Create(builder =>
-            // {
-            //     builder
-            //         .SetMinimumLevel(LogLevel.Trace)
-            //         .AddConsole()
-            //         ;
-            // }).CreateLogger<Lms5XxConnector>();
+            _logger = logger ?? NullLoggerFactory.Instance.CreateLogger<Lms5XxConnector>();
+            _radarName = radarName;
+            _debugDataPath = Path.Combine("DebugData", $"{DateTime.Now:yyyyMMdd}{Guid.NewGuid()}_{radarName}.dat");
+        }
+
+        public async Task PlaybackDebugData(string debugDataFile, Action<DateTime, TelegramContent> callback)
+        {
+            using var reader = new BinaryReader(File.OpenRead(debugDataFile));
+            while (reader.BaseStream.Position < reader.BaseStream.Length)
+            {
+                try
+                {
+                    // 读取时间戳
+                    var timestamp = DateTime.FromBinary(reader.ReadInt64());
+                    // 读取雷达名称
+                    var radarName = reader.ReadString();
+                    // 读取数据长度
+                    var dataLength = reader.ReadInt64();
+                    // 读取原始数据
+                    var rawData = reader.ReadBytes((int)dataLength);
+                    
+                    // 反序列化数据
+                    using var memoryStream = new MemoryStream(rawData);
+                    var packetCoLaB = await _serializer.DeserializeAsync<CoLaA>(memoryStream);
+                    
+                    if (packetCoLaB?.Content != null)
+                    {
+                        callback(timestamp, packetCoLaB.Content);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "回放调试数据时发生错误");
+                }
+            }
         }
 
     }
