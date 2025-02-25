@@ -118,7 +118,7 @@ class Program
                     byte[] responseData = Encoding.ASCII.GetBytes(response);
                     await stream.WriteAsync(responseData, cancellationToken);
                     _logger.LogDebug($"发送扫描数据帧 #{scanCounter++}");
-                    await Task.Delay(100, cancellationToken);
+                    await Task.Delay(5, cancellationToken);
                 }
             }
             catch (OperationCanceledException)
