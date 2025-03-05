@@ -76,7 +76,7 @@ namespace LMS5xxConnector
         public async Task ConnectAsync(string remoteEndpoint)
         {
             _logger?.LogInformation("开始解析并连接到终端点：{Endpoint}", remoteEndpoint);
-            
+
             if (!TcpUtils.TryParseEndpoint(remoteEndpoint.AsSpan(), out var parsedRemoteEndpoint))
             {
                 _logger?.LogError("无效的终端点格式：{Endpoint}", remoteEndpoint);
@@ -120,7 +120,7 @@ namespace LMS5xxConnector
         {
             _logger?.LogInformation("开始连接到远程设备 {Address}:{Port}", remoteEndpoint.Address, remoteEndpoint.Port);
 
-            try 
+            try
             {
                 await Initialize(new TcpClient(), remoteEndpoint);
                 _logger?.LogInformation("成功连接到远程设备");
@@ -162,7 +162,7 @@ namespace LMS5xxConnector
             if (remoteEndpoint is not null)
             {
                 _logger?.LogDebug("开始建立TCP连接，超时时间：{Timeout}ms", ConnectTimeout);
-                
+
                 // 尝试在指定超时时间内建立连接
                 if (!tcpClient.ConnectAsync(remoteEndpoint.Address, remoteEndpoint.Port)
                         .Wait(ConnectTimeout))
@@ -179,7 +179,7 @@ namespace LMS5xxConnector
             if (isInternal)
             {
                 _logger?.LogDebug("设置网络流超时参数 - 读取超时：{ReadTimeout}ms，写入超时：{WriteTimeout}ms", ReadTimeout, WriteTimeout);
-                    
+
                 _networkStream.ReadTimeout = ReadTimeout;
                 _networkStream.WriteTimeout = WriteTimeout;
             }
@@ -187,13 +187,13 @@ namespace LMS5xxConnector
             // 初始化取消令牌
             _tokenSource = new CancellationTokenSource();
             _token = _tokenSource.Token;
-            
+
             // 注册连接关闭回调
-            _token.Register(() => 
-            { 
+            _token.Register(() =>
+            {
                 _logger?.LogDebug("正在关闭网络连接");
-                _networkStream?.Close(); 
-                tcpClient.Close(); 
+                _networkStream?.Close();
+                tcpClient.Close();
             });
 
             // 启动数据接收任务
@@ -244,30 +244,26 @@ namespace LMS5xxConnector
                             RadarName = _radarName,
                             RawBytes = memoryStream.ToArray()
                         };
-
+                        // 保存原始数据
+                        lock (_fileLock)
+                        {
+                            using var writer = new BinaryWriter(File.Open(_debugDataPath, FileMode.Append,
+                                FileAccess.Write));
+                            // 写入时间戳
+                            writer.Write(rawData.Timestamp.ToBinary());
+                            // 写入雷达名称
+                            writer.Write(_radarName);
+                            // 写入数据长度
+                            writer.Write(rawData.RawBytes.Length);
+                            // 写入原始数据
+                            writer.Write(rawData.RawBytes);
+                        }
                         // 将流位置重置到开始
                         memoryStream.Position = 0;
 
                         // 反序列化数据
                         packetCoLaB = await _serializer.DeserializeAsync<CoLaA>(memoryStream);
 
-                        if (IsDebug)
-                        {
-                            // 保存原始数据
-                            lock (_fileLock)
-                            {
-                                using var writer = new BinaryWriter(File.Open(_debugDataPath, FileMode.Append,
-                                    FileAccess.Write));
-                                // 写入时间戳
-                                writer.Write(rawData.Timestamp.ToBinary());
-                                // 写入雷达名称
-                                writer.Write(_radarName);
-                                // 写入数据长度
-                                writer.Write(rawData.RawBytes.Length);
-                                // 写入原始数据
-                                writer.Write(rawData.RawBytes);
-                            }
-                        }
                     }
                     else
                     {
@@ -286,7 +282,7 @@ namespace LMS5xxConnector
                         if (IsLongRunningHandler(commandKey))
                         {
                             _ = Task.Run(() => handle(packetCoLaB.Content), token)
-                                .ContinueWith(t => 
+                                .ContinueWith(t =>
                                 {
                                     if (t.IsFaulted)
                                     {
@@ -539,7 +535,7 @@ namespace LMS5xxConnector
             };
             try
             {
-                
+
                 if (IsDebug)
                 {
                     var stream = new MemoryStream();
@@ -556,7 +552,7 @@ namespace LMS5xxConnector
             }
             catch (Exception e)
             {
-                _logger.LogError(e,"序列化出错!");
+                _logger.LogError(e, "序列化出错!");
                 throw;
             }
         }
@@ -587,11 +583,11 @@ namespace LMS5xxConnector
                     var dataLength = reader.ReadInt64();
                     // 读取原始数据
                     var rawData = reader.ReadBytes((int)dataLength);
-                    
+
                     // 反序列化数据
                     using var memoryStream = new MemoryStream(rawData);
                     var packetCoLaB = await _serializer.DeserializeAsync<CoLaA>(memoryStream);
-                    
+
                     if (packetCoLaB?.Content != null)
                     {
                         callback(timestamp, packetCoLaB.Content);

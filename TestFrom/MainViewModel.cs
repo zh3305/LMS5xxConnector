@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -61,6 +61,14 @@ public partial class MainViewModel
     private FileStream? _saveFileStream;
     private string _currentSaveFilePath;
     private CancellationTokenSource? _playbackCancellationTokenSource;
+
+    partial void OnIsSaveDataChanged(bool value)
+    {
+        if (_connector != null)
+        {
+            _connector.IsDebug = value;
+        }
+    }
 
     public MainViewModel()
     {
@@ -520,8 +528,13 @@ public partial class MainViewModel
             MessageBox.Show("请先选择数据文件");
             return;
         }
-
+#if NET8_0
         await _playbackCancellationTokenSource?.CancelAsync()!;
+#else
+        
+         _playbackCancellationTokenSource?.Cancel();
+
+#endif
         _playbackCancellationTokenSource = new CancellationTokenSource();
 
         try
