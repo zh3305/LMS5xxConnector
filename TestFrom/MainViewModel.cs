@@ -20,56 +20,46 @@ namespace DistanceSensorAppDemo;
 [ObservableObject]
 public partial class MainViewModel
 {
+    public CircleMarkerGraph CirclePoints;
+    // 添加静态数组池
+    private static readonly int MaxPointCount = 10000;
+
+    private readonly Lms5XxConnector _connector;
+    private readonly object _fpsLock = new object();
+    private readonly Stopwatch _fpsStopwatch = new Stopwatch();
+    // [ObservableProperty]
+    // public ObservableCollection<UIElement> charts = new ObservableCollection<UIElement>();
+    private readonly ILogger<MainViewModel> _logger;
+
+    private double[] _csBuffer = new double[MaxPointCount];
+    [ObservableProperty] private string _currentAction = "Ready";
+    private double _currentFps = 0;
+    private string _currentSaveFilePath;
+    [ObservableProperty] private string _deviceInfo;
+    private int _frameCount = 0;
     [ObservableProperty] private string _ipAddress;
 
-    [ObservableProperty] private string _statusText;
-
-    [ObservableProperty] private double _rotationAngle = 0;
-
-    [ObservableProperty] private string _deviceInfo;
-
     private bool _isConnected;
-
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
     [NotifyCanExecuteChangedFor(nameof(InitializeCommand))]
     private bool _isInitialized;
 
+    [ObservableProperty] private bool _isSaveData;
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(StartCommand))]
     [NotifyCanExecuteChangedFor(nameof(StopCommand))]
     private bool _isStarted;
 
-    [ObservableProperty] private string _currentAction = "Ready";
+    private CancellationTokenSource? _playbackCancellationTokenSource;
+    [ObservableProperty] private double _rotationAngle = 0;
+    private FileStream? _saveFileStream;
+    [ObservableProperty] private string _statusText;
+    // 根据实际最大点数调整
 
-    public CircleMarkerGraph CirclePoints;
-    // [ObservableProperty]
-    // public ObservableCollection<UIElement> charts = new ObservableCollection<UIElement>();
-
-    private readonly Lms5XxConnector _connector;
-
-    private readonly ILogger<MainViewModel> _logger;
-
-    // 添加静态数组池
-    private static readonly int MaxPointCount = 10000; // 根据实际最大点数调整
-
+    private Stopwatch _stopwatch = new Stopwatch();
     private double[] _xsBuffer = new double[MaxPointCount];
     private double[] _ysBuffer = new double[MaxPointCount];
-    private double[] _csBuffer = new double[MaxPointCount];
-
-    [ObservableProperty] private bool _isSaveData;
-    private FileStream? _saveFileStream;
-    private string _currentSaveFilePath;
-    private CancellationTokenSource? _playbackCancellationTokenSource;
-
-    partial void OnIsSaveDataChanged(bool value)
-    {
-        if (_connector != null)
-        {
-            _connector.IsDebug = value;
-        }
-    }
-
     public MainViewModel()
     {
 #if DEBUG
@@ -97,6 +87,9 @@ public partial class MainViewModel
             $"LidarData_{DateTime.Now:yyyyMMdd_HHmmss}.dat");
     }
 
+    // 添加属性用于外部访问FPS
+    public double CurrentFps => _currentFps;
+
     public bool IsConnected
     {
         get => _isConnected;
@@ -121,6 +114,12 @@ public partial class MainViewModel
     }
 
     public bool IsDisconnected => !IsConnected;
+
+    private bool CanInitialize => IsConnected && !IsInitialized;
+
+    private bool CanStart => IsConnected && !IsStarted;
+
+    private bool CanStop => IsConnected;
 
     [RelayCommand]
     public async Task ConnectAsync()
@@ -175,76 +174,6 @@ public partial class MainViewModel
         _playbackCancellationTokenSource?.Cancel();
     }
 
-    private bool CanInitialize => IsConnected && !IsInitialized;
-
-    [RelayCommand(CanExecute = nameof(CanInitialize))]
-    private async Task Initialize()
-    {
-        IsInitialized = true;
-    }
-
-    private bool CanStart => IsConnected && !IsStarted;
-
-    private bool CanStop => IsConnected; //&& IsStarted;
-
-    [RelayCommand(CanExecute = nameof(CanStop))]
-    private async Task Stop()
-    {
-        //开始连续采集
-        CurrentAction = "set stop Send data permanently";
-        if (await _connector.StopScanData() == StopStart.Stop)
-        {
-            CurrentAction = "set stop Send data permanently success!";
-            IsStarted = false;
-        }
-        else
-        {
-            CurrentAction = "set  stop Send data permanently failed!";
-        }
-    }
-
-    [RelayCommand]
-    private async Task Restart()
-    {
-        // TODO: Implement restart logic
-        // This should stop the acquisition, reinitialize the device, and start the acquisition again
-    }
-
-    [RelayCommand]
-    private async Task Login()
-    {
-        // TODO: Implement login logic
-        // This should prompt the user for credentials and perform a login
-    }
-
-    [RelayCommand]
-    private async Task GetDeviceInfo()
-    {
-        // TODO: Implement get device info logic
-        // This should retrieve device information and display it in DeviceInfo
-        CurrentAction = "start GetDeviceInfo";
-        var uniqueIdentificationModeCommand = await _connector.GetDeviceInfo();
-        this.DeviceInfo = uniqueIdentificationModeCommand?.Name + "   " + uniqueIdentificationModeCommand?.Version;
-        CurrentAction = "Ready";
-    }
-
-    [RelayCommand(CanExecute = nameof(CanStart))]
-    private async Task Start()
-    {
-        //开始连续采集
-        CurrentAction = "set Send data permanently";
-        IsStarted = true;
-        if (await _connector.StartScanData() == StopStart.Start)
-        {
-            _connector.ReceivedHandles.AddOrUpdate((CommandTypes.Ssn, Commands.LMDscandata), HanderScanData,
-                (tuple, action) => HanderScanData);
-        }
-        else
-        {
-            CurrentAction = "set Send data permanently failed!";
-        }
-    }
-
     [RelayCommand]
     private async Task GetData()
     {
@@ -259,12 +188,19 @@ public partial class MainViewModel
         CurrentAction = "Ready";
     }
 
-    private readonly Stopwatch _fpsStopwatch = new Stopwatch();
-    private int _frameCount = 0;
-    private double _currentFps = 0;
-    private readonly object _fpsLock = new object();
+    [RelayCommand]
+    private async Task GetDeviceInfo()
+    {
+        CurrentAction = "start GetDeviceInfo";
+        var uniqueIdentificationModeCommand = await _connector.GetDeviceInfo();
+        this.DeviceInfo = uniqueIdentificationModeCommand?.Name + "   " + uniqueIdentificationModeCommand?.Version;
+        CurrentAction = "Ready";
+    }
 
-    private Stopwatch _stopwatch = new Stopwatch();
+    private double GetRssiColor(ushort value)
+    {
+        return value;
+    }
 
     private void HanderScanData(TelegramContent telegramContent)
     {
@@ -298,60 +234,44 @@ public partial class MainViewModel
         }
     }
 
-    private void ShowScanData(LMDscandataModeCommand lmDscandataModeCommand)
+    [RelayCommand(CanExecute = nameof(CanInitialize))]
+    private async Task Initialize()
     {
-        var lmdScandata = lmDscandataModeCommand.OutputChannelList[0];
-        UpdateFps();
-
-        int pointCount = lmdScandata.DistDatas.Count;
-        // 确保不超过缓冲区大小
-        if (pointCount > MaxPointCount)
-        {
-            _logger?.LogWarning("点数超出缓冲区大小: {PointCount} > {MaxPointCount}", pointCount, MaxPointCount);
-            pointCount = MaxPointCount;
-        }
-
-        var processingStopwatch = new Stopwatch();
-        processingStopwatch.Start();
-
-        if (false && System.Runtime.Intrinsics.X86.Sse2.IsSupported)
-        {
-            ProcessPointsSimd(lmdScandata, lmDscandataModeCommand, _xsBuffer, _ysBuffer, _csBuffer, pointCount);
-            processingStopwatch.Stop();
-            _logger?.LogDebug("处理扫描数据: 点数={Count}, 输出通道数={ChannelCount}, FPS={Fps:F2}, SIMD处理时间={ProcessingTime}Ticks",
-                pointCount,
-                lmDscandataModeCommand.OutputChannel8BitList.Count,
-                _currentFps,
-                processingStopwatch.ElapsedTicks);
-        }
-        else
-        {
-            ProcessPointsParallel(lmdScandata, lmDscandataModeCommand, _xsBuffer, _ysBuffer, _csBuffer, pointCount);
-            processingStopwatch.Stop();
-            _logger?.LogDebug("处理扫描数据: 点数={Count}, 输出通道数={ChannelCount}, FPS={Fps:F2}, 并行处理时间={ProcessingTime}ms",
-                pointCount,
-                lmDscandataModeCommand.OutputChannel8BitList.Count,
-                _currentFps,
-                processingStopwatch.ElapsedMilliseconds);
-        }
-
-        Application.Current.Dispatcher.Invoke(() =>
-        {
-            try
-            {
-                CirclePoints.PlotColor(
-                    _xsBuffer.AsSpan(0, pointCount).ToArray(),
-                    _ysBuffer.AsSpan(0, pointCount).ToArray(),
-                    _csBuffer.AsSpan(0, pointCount).ToArray());
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "更新图形显示时发生错误");
-            }
-        });
+        IsInitialized = true;
     }
 
-    private void ProcessPointsParallel(OutputChannel lmdScandata, LMDscandataModeCommand scanDataCommand, 
+    [RelayCommand]
+    private async Task Login()
+    {
+        // TODO: Implement login logic
+        // This should prompt the user for credentials and perform a login
+    }
+
+     partial void OnIsSaveDataChanged(bool value)
+    {
+        if (_connector != null)
+        {
+            _connector.IsDebug = value;
+        }
+    }
+    //&& IsStarted;
+
+    [RelayCommand]
+    private async Task OpenDataFile()
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            DefaultExt = ".dat",
+            Filter = "Lidar Data Files (*.dat)|*.dat"
+        };
+
+        if (dialog.ShowDialog() == true)
+        {
+            _currentSaveFilePath = dialog.FileName;
+        }
+    }
+
+    private void ProcessPointsParallel(OutputChannel lmdScandata, LMDscandataModeCommand scanDataCommand,
         double[] xs, double[] ys, double[] cs, int pointCount)
     {
         var scaleFactor = lmdScandata.ScaleFactor.Value;
@@ -375,7 +295,7 @@ public partial class MainViewModel
         });
     }
 
-    private void ProcessPointsSimd(OutputChannel lmdScandata, LMDscandataModeCommand scanDataCommand, 
+    private void ProcessPointsSimd(OutputChannel lmdScandata, LMDscandataModeCommand scanDataCommand,
         double[] xs, double[] ys, double[] cs, int pointCount)
     {
         var scaleFactor = lmdScandata.ScaleFactor.Value;
@@ -399,8 +319,23 @@ public partial class MainViewModel
         }
     }
 
-    private void ProcessTwoPoints(int index, OutputChannel lmdScandata, LMDscandataModeCommand scanDataCommand, 
-        double scaleFactor, double startAngle, double angularStep, 
+    private void ProcessSinglePoint(int index, OutputChannel lmdScandata, LMDscandataModeCommand scanDataCommand,
+        double scaleFactor, double startAngle, double angularStep,
+        double[] xs, double[] ys, double[] cs)
+    {
+        var dim = scaleFactor * lmdScandata.DistDatas[index].Value;
+        var angle = startAngle + index * angularStep + RotationAngle;
+        var angleRad = angle * Math.PI / 180.0;
+
+        xs[index] = dim * Math.Cos(angleRad);
+        ys[index] = dim * Math.Sin(angleRad);
+        cs[index] = scanDataCommand.OutputChannel8BitList.Count > 0
+            ? scanDataCommand.OutputChannel8BitList[0].DistDatas[index].Value
+            : 255;
+    }
+
+    private void ProcessTwoPoints(int index, OutputChannel lmdScandata, LMDscandataModeCommand scanDataCommand,
+        double scaleFactor, double startAngle, double angularStep,
         double[] xs, double[] ys, double[] cs)
     {
         var hasRssiData = scanDataCommand.OutputChannel8BitList.Count > 0;
@@ -418,52 +353,11 @@ public partial class MainViewModel
         }
     }
 
-    private void ProcessSinglePoint(int index, OutputChannel lmdScandata, LMDscandataModeCommand scanDataCommand, 
-        double scaleFactor, double startAngle, double angularStep, 
-        double[] xs, double[] ys, double[] cs)
+    [RelayCommand]
+    private async Task Restart()
     {
-        var dim = scaleFactor * lmdScandata.DistDatas[index].Value;
-        var angle = startAngle + index * angularStep + RotationAngle;
-        var angleRad = angle * Math.PI / 180.0;
-
-        xs[index] = dim * Math.Cos(angleRad);
-        ys[index] = dim * Math.Sin(angleRad);
-        cs[index] = scanDataCommand.OutputChannel8BitList.Count > 0 
-            ? scanDataCommand.OutputChannel8BitList[0].DistDatas[index].Value 
-            : 255;
-    }
-
-    /// <summary>
-    /// 更新FPS计算
-    /// </summary>
-    private void UpdateFps()
-    {
-        lock (_fpsLock)
-        {
-            if (!_fpsStopwatch.IsRunning)
-            {
-                _fpsStopwatch.Start();
-                _frameCount = 0;
-            }
-
-            _frameCount++;
-
-            // 每秒更新一次FPS
-            if (_fpsStopwatch.ElapsedMilliseconds >= 1000)
-            {
-                _currentFps = _frameCount * 1000.0 / _fpsStopwatch.ElapsedMilliseconds;
-                _frameCount = 0;
-                _fpsStopwatch.Restart();
-            }
-        }
-    }
-
-    // 添加属性用于外部访问FPS
-    public double CurrentFps => _currentFps;
-
-    private double GetRssiColor(ushort value)
-    {
-        return value;
+        // TODO: Implement restart logic
+        // This should stop the acquisition, reinitialize the device, and start the acquisition again
     }
 
     private void SaveScanData(LMDscandataModeCommand scanDataCommand)
@@ -505,18 +399,73 @@ public partial class MainViewModel
         }
     }
 
-    [RelayCommand]
-    private async Task OpenDataFile()
+    private void ShowScanData(LMDscandataModeCommand lmDscandataModeCommand)
     {
-        var dialog = new Microsoft.Win32.OpenFileDialog
-        {
-            DefaultExt = ".dat",
-            Filter = "Lidar Data Files (*.dat)|*.dat"
-        };
+        var lmdScandata = lmDscandataModeCommand.OutputChannelList[0];
+        UpdateFps();
 
-        if (dialog.ShowDialog() == true)
+        int pointCount = lmdScandata.DistDatas.Count;
+        // 确保不超过缓冲区大小
+        if (pointCount > MaxPointCount)
         {
-            _currentSaveFilePath = dialog.FileName;
+            _logger?.LogWarning("点数超出缓冲区大小: {PointCount} > {MaxPointCount}", pointCount, MaxPointCount);
+            pointCount = MaxPointCount;
+        }
+
+        var processingStopwatch = new Stopwatch();
+        processingStopwatch.Start();
+
+        if (false&& System.Runtime.Intrinsics.X86.Sse2.IsSupported)
+        {
+            ProcessPointsSimd(lmdScandata, lmDscandataModeCommand, _xsBuffer, _ysBuffer, _csBuffer, pointCount);
+            processingStopwatch.Stop();
+            _logger?.LogDebug("处理扫描数据: 点数={Count}, 输出通道数={ChannelCount}, FPS={Fps:F2}, SIMD处理时间={ProcessingTime}Ticks",
+                pointCount,
+                lmDscandataModeCommand.OutputChannel8BitList.Count,
+                _currentFps,
+                processingStopwatch.ElapsedTicks);
+        }
+        else
+        {
+            ProcessPointsParallel(lmdScandata, lmDscandataModeCommand, _xsBuffer, _ysBuffer, _csBuffer, pointCount);
+            processingStopwatch.Stop();
+            _logger?.LogDebug("处理扫描数据: 点数={Count}, 输出通道数={ChannelCount}, FPS={Fps:F2}, 并行处理时间={ProcessingTime}Ticks",
+                pointCount,
+                lmDscandataModeCommand.OutputChannel8BitList.Count,
+                _currentFps,
+                processingStopwatch.ElapsedTicks);
+        }
+
+        Application.Current.Dispatcher.Invoke(() =>
+        {
+            try
+            {
+                CirclePoints.PlotColor(
+                    _xsBuffer.AsSpan(0, pointCount).ToArray(),
+                    _ysBuffer.AsSpan(0, pointCount).ToArray(),
+                    _csBuffer.AsSpan(0, pointCount).ToArray());
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "更新图形显示时发生错误");
+            }
+        });
+    }
+
+    [RelayCommand(CanExecute = nameof(CanStart))]
+    private async Task Start()
+    {
+        //开始连续采集
+        CurrentAction = "set Send data permanently";
+        IsStarted = true;
+        if (await _connector.StartScanData() == StopStart.Start)
+        {
+            _connector.ReceivedHandles.AddOrUpdate((CommandTypes.Ssn, Commands.LMDscandata), HanderScanData,
+                (tuple, action) => HanderScanData);
+        }
+        else
+        {
+            CurrentAction = "set Send data permanently failed!";
         }
     }
 
@@ -531,8 +480,8 @@ public partial class MainViewModel
 #if NET8_0
         await _playbackCancellationTokenSource?.CancelAsync()!;
 #else
-        
-         _playbackCancellationTokenSource?.Cancel();
+
+        _playbackCancellationTokenSource?.Cancel();
 
 #endif
         _playbackCancellationTokenSource = new CancellationTokenSource();
@@ -589,9 +538,49 @@ public partial class MainViewModel
         }
     }
 
+    [RelayCommand(CanExecute = nameof(CanStop))]
+    private async Task Stop()
+    {
+        //开始连续采集
+        CurrentAction = "set stop Send data permanently";
+        if (await _connector.StopScanData() == StopStart.Stop)
+        {
+            CurrentAction = "set stop Send data permanently success!";
+            IsStarted = false;
+        }
+        else
+        {
+            CurrentAction = "set  stop Send data permanently failed!";
+        }
+    }
     [RelayCommand]
     private void StopPlayback()
     {
         _playbackCancellationTokenSource?.Cancel();
+    }
+
+    /// <summary>
+    /// 更新FPS计算
+    /// </summary>
+    private void UpdateFps()
+    {
+        lock (_fpsLock)
+        {
+            if (!_fpsStopwatch.IsRunning)
+            {
+                _fpsStopwatch.Start();
+                _frameCount = 0;
+            }
+
+            _frameCount++;
+
+            // 每秒更新一次FPS
+            if (_fpsStopwatch.ElapsedMilliseconds >= 1000)
+            {
+                _currentFps = _frameCount * 1000.0 / _fpsStopwatch.ElapsedMilliseconds;
+                _frameCount = 0;
+                _fpsStopwatch.Restart();
+            }
+        }
     }
 }

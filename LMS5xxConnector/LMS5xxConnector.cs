@@ -19,7 +19,10 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LMS5xxConnector
 {
-    public class Lms5XxConnector : IDisposable
+    /// <summary>
+    /// LMS5xx 雷达设备连接器实现，使用CoLaA协议与雷达设备通信
+    /// </summary>
+    public class Lms5XxConnector : ILms5XxConnector
     {
         private CancellationTokenSource _tokenSource = new CancellationTokenSource();
         private CancellationToken _token;
@@ -483,6 +486,15 @@ namespace LMS5xxConnector
 
         }
         public async Task<UniqueIdentificationModeCommand?> GetDeviceInfo()
+        {
+            return await GetDeviceInfoInternal();
+        }
+
+        /// <summary>
+        /// 获取设备信息的内部实现
+        /// </summary>
+        /// <returns>设备标识信息，如果获取失败则返回null</returns>
+        private async Task<UniqueIdentificationModeCommand?> GetDeviceInfoInternal()
         {
             var telegram = new TelegramContent
             {

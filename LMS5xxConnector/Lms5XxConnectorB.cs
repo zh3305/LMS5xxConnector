@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using BinarySerialization;
 using LMS5xxConnector.Telegram;
 using LMS5xxConnector.Utils;
@@ -18,7 +18,10 @@ using LMS5xxConnector.Telegram.CommandContents;
 
 namespace LMS5xxConnector
 {
-    public class Lms5XxConnectorB : IDisposable
+    /// <summary>
+    /// LMS5xx 雷达设备连接器B实现，使用CoLaB协议与雷达设备通信
+    /// </summary>
+    public class Lms5XxConnectorB : ILms5XxConnector
     {
         private CancellationTokenSource _tokenSource = new();
         private CancellationToken _token;
@@ -30,29 +33,62 @@ namespace LMS5xxConnector
         };
         private readonly ILogger<Lms5XxConnectorB> _logger;
         private readonly ASCIIEncoding _encoding = new();
-
+    
+        /// <summary>
+        /// 获取或设置连接超时时间（毫秒）
+        /// </summary>
         public int ConnectTimeout { get; set; } = DefaultConnectTimeout;
+        
+        /// <summary>
+        /// 获取或设置读取超时时间（毫秒）
+        /// </summary>
         public int ReadTimeout { get; set; } = Timeout.Infinite;
+        
+        /// <summary>
+        /// 获取或设置写入超时时间（毫秒）
+        /// </summary>
         public int WriteTimeout { get; set; } = Timeout.Infinite;
+        
+        /// <summary>
+        /// 获取或设置是否启用调试模式
+        /// </summary>
         public bool IsDebug { get; set; } = true;
+        
+        /// <summary>
+        /// 获取当前连接状态
+        /// </summary>
         public bool IsConnected => _tcpClient?.Value.Connected ?? false;
         
+        /// <summary>
+        /// 默认连接超时时间（毫秒）
+        /// </summary>
         internal static int DefaultConnectTimeout { get; set; } = (int)TimeSpan.FromSeconds(1).TotalMilliseconds;
         
+        /// <summary>
+        /// 接收到的命令处理器字典
+        /// </summary>
         public ConcurrentDictionary<(CommandTypes, Commands), Action<TelegramContentB>> ReceivedHandles = new();
+        
+        /// <summary>
+        /// 当接收到数据时触发的事件
+        /// </summary>
         public event EventHandler<DataReceivedEventArgs>? DataReceived;
-
+    
+        /// <summary>
+        /// 初始化 Lms5XxConnectorB 的新实例
+        /// </summary>
+        /// <param name="logger">日志记录器</param>
         public Lms5XxConnectorB(ILogger<Lms5XxConnectorB>? logger = null)
         {
             _logger = logger ?? NullLoggerFactory.Instance.CreateLogger<Lms5XxConnectorB>();
         }
-
+    
         public async Task ConnectAsync()
         {
             _logger?.LogInformation("开始连接到本地回环地址，端口：2111");
             await ConnectAsync(new IPEndPoint(IPAddress.Loopback, 2111));
         }
-
+    
         public async Task ConnectAsync(string remoteEndpoint)
         {
             _logger?.LogInformation("开始解析并连接到终端点：{Endpoint}", remoteEndpoint);
@@ -62,14 +98,14 @@ namespace LMS5xxConnector
                 _logger?.LogError("无效的终端点格式：{Endpoint}", remoteEndpoint);
                 throw new FormatException("指定的终端点格式无效");
             }
-
+    
             await ConnectAsync(parsedRemoteEndpoint);
         }
-
+    
         public async Task ConnectAsync(IPEndPoint remoteEndpoint)
         {
             _logger?.LogInformation("开始连接到远程设备 {Address}:{Port}", remoteEndpoint.Address, remoteEndpoint.Port);
-
+    
             try 
             {
                 await Initialize(new TcpClient(), remoteEndpoint);
@@ -81,7 +117,7 @@ namespace LMS5xxConnector
                 throw;
             }
         }
-
+    
         private async Task Initialize(TcpClient tcpClient, IPEndPoint? remoteEndpoint)
         {
             if (_tcpClient is { IsInternal: true })
@@ -89,10 +125,10 @@ namespace LMS5xxConnector
                 _logger.LogDebug("关闭旧的TCP连接");
                 _tcpClient.Value.Value.Close();
             }
-
+    
             var isInternal = remoteEndpoint is not null;
             _tcpClient = (tcpClient, isInternal);
-
+    
             if (remoteEndpoint is not null)
             {
                 if (!tcpClient.ConnectAsync(remoteEndpoint.Address, remoteEndpoint.Port)
@@ -101,22 +137,22 @@ namespace LMS5xxConnector
                     throw new TimeoutException("无法在指定时间内建立连接");
                 }
             }
-
+    
             _networkStream = tcpClient.GetStream();
-
+    
             if (isInternal)
             {
                 _networkStream.ReadTimeout = ReadTimeout;
                 _networkStream.WriteTimeout = WriteTimeout;
             }
-
+    
             _tokenSource = new CancellationTokenSource();
             _token = _tokenSource.Token;
             
             // 启动接收循环
             _ = Task.Run(ReceiveLoop, _token);
         }
-
+    
         private async Task ReceiveLoop()
         {
             try
@@ -140,12 +176,12 @@ namespace LMS5xxConnector
                 _logger.LogError(ex, "接收数据时发生错误");
             }
         }
-
+    
         public async Task Send(TelegramContentB data)
         {
             if (data == null) throw new ArgumentNullException(nameof(data));
             if (!IsConnected) throw new IOException("未连接到服务器");
-
+    
             var telegram = new CoLaB { Content = data };
             
             try
@@ -169,7 +205,7 @@ namespace LMS5xxConnector
                 throw;
             }
         }
-
+    
         public void Disconnect()
         {
             try
@@ -183,15 +219,28 @@ namespace LMS5xxConnector
                 _logger.LogError(ex, "断开连接时发生错误");
             }
         }
-
+    
         public void Dispose()
         {
             Disconnect();
             _tokenSource.Dispose();
             GC.SuppressFinalize(this);
         }
-
+    
+        /// <summary>
+        /// 获取设备信息
+        /// </summary>
+        /// <returns>设备标识信息，如果获取失败则返回null</returns>
         public async Task<UniqueIdentificationModeCommandB?> GetDeviceInfo()
+        {
+            return await GetDeviceInfoInternal();
+        }
+    
+        /// <summary>
+        /// 获取设备信息的内部实现
+        /// </summary>
+        /// <returns>设备标识信息，如果获取失败则返回null</returns>
+        private async Task<UniqueIdentificationModeCommandB?> GetDeviceInfoInternal()
         {
             var telegram = new TelegramContentB
             {
@@ -201,10 +250,10 @@ namespace LMS5xxConnector
                     Command = Commands.DeviceIdent
                 }
             };
-
+    
             var cancellationTokenSource = new CancellationTokenSource();
             var tcs = new TaskCompletionSource<UniqueIdentificationModeCommandB?>();
-
+    
             if (ReceivedHandles.TryAdd((CommandTypes.Sra, Commands.DeviceIdent),
                 (telegramContent) =>
                 {
@@ -218,7 +267,7 @@ namespace LMS5xxConnector
                     await Send(telegram);
                     cancellationTokenSource.CancelAfter(3000); // 3秒超时
                     cancellationTokenSource.Token.Register(() => tcs.TrySetCanceled());
-
+    
                     return await tcs.Task;
                 }
                 catch (OperationCanceledException)
@@ -239,4 +288,4 @@ namespace LMS5xxConnector
             }
         }
     }
-} 
+}
