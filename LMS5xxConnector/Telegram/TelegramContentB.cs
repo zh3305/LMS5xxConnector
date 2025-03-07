@@ -1,4 +1,4 @@
-using BinarySerialization;
+﻿using BinarySerialization;
 using LMS5xxConnector.Telegram.CommandContainers;
 
 namespace LMS5xxConnector.Telegram
@@ -28,7 +28,7 @@ namespace LMS5xxConnector.Telegram
         [Subtype("CommandTypes", CommandTypes.Sen, typeof(SenCommandContainerB), BindingMode = BindingMode.OneWay)]
         [Subtype("CommandTypes", CommandTypes.Sra, typeof(SraCommandContainerB), BindingMode = BindingMode.OneWay)]
         [Subtype("CommandTypes", CommandTypes.Swa, typeof(SenCommandContainerB), BindingMode = BindingMode.OneWay)]
-        [Subtype("CommandTypes", CommandTypes.Sea, typeof(SenCommandContainerB), BindingMode = BindingMode.OneWay)]
+        [Subtype("CommandTypes", CommandTypes.Sea, typeof(SeaCommandContainerB), BindingMode = BindingMode.OneWay)]
         [Subtype("CommandTypes", CommandTypes.Ssn, typeof(SsnCommandContainerB), BindingMode = BindingMode.OneWay)]
         // [Subtype("CommandTypes", CommandTypes.San, typeof(SanCommandContainerB), BindingMode = BindingMode.OneWay)]
         // [Subtype("CommandTypes", CommandTypes.Sfa, typeof(SfaCommandContainerB), BindingMode = BindingMode.OneWay)]

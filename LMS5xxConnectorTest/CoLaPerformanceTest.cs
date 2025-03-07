@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text;
 using BinarySerialization;
 using LMS5xxConnector.Telegram;
@@ -73,8 +73,8 @@ public class CoLaPerformanceTest
         {
             Assert.That(deviceInfoA.Name, Is.EqualTo("LMS10x_FieldEval"));
             Assert.That(deviceInfoA.Version, Is.EqualTo("V1.36-21.10.2010"));
-            Assert.That(deviceInfoB.DeviceDesignation, Is.EqualTo("LMS10x_FieldEval"));
-            Assert.That(deviceInfoB.FirmwareVersion, Is.EqualTo("V1.36-21.10.2010"));
+            Assert.That(deviceInfoB.Name, Is.EqualTo("LMS10x_FieldEval"));
+            Assert.That(deviceInfoB.Version, Is.EqualTo("V1.36-21.10.2010"));
         });
     }
 } 

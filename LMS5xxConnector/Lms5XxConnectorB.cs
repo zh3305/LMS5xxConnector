@@ -287,5 +287,157 @@ namespace LMS5xxConnector
                 return null;
             }
         }
+
+        public async Task<StopStartB> StartScanData()
+        {
+            var telegram = new TelegramContentB
+            {
+                CommandTypes = CommandTypes.Sen,
+                Payload = new SenCommandContainerB
+                {
+                    Command = Commands.LMDscandata,
+                    CommandConnent = new ConfirmationRequestModeCommandBaseB
+                    {
+                        StopStart = StopStartB.Start
+                    }
+                }
+            };
+            
+            var cancellationTokenSource = new CancellationTokenSource();
+            var tcs = new TaskCompletionSource<StopStartB>();
+            
+            if (ReceivedHandles.TryAdd((CommandTypes.Sea, Commands.LMDscandata),
+                (telegramContent) =>
+                {
+                    ReceivedHandles.Remove((CommandTypes.Sea, Commands.LMDscandata), out _);
+                    tcs.TrySetResult(((ConfirmationRequestModeCommandBaseB)telegramContent.Payload.CommandConnent).StopStart);
+                }))
+            {
+                try
+                {
+                    await Send(telegram);
+                    cancellationTokenSource.CancelAfter(3000); // 3秒超时
+                    cancellationTokenSource.Token.Register(() => tcs.TrySetCanceled());
+                    
+                    return await tcs.Task;
+                }
+                catch (OperationCanceledException)
+                {
+                    _logger?.LogWarning("启动扫描数据超时");
+                    throw new TimeoutException("启动扫描数据超时");
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "启动扫描数据失败");
+                    throw;
+                }
+            }
+            else
+            {
+                var errorMsg = "还有上次未完成的扫描启动命令";
+                _logger?.LogWarning(errorMsg);
+                throw new InvalidOperationException(errorMsg);
+            }
+        }
+
+        public async Task<StopStartB> StopScanData()
+        {
+            var telegram = new TelegramContentB
+            {
+                CommandTypes = CommandTypes.Sen,
+                Payload = new SenCommandContainerB
+                {
+                    Command = Commands.LMDscandata,
+                    CommandConnent = new ConfirmationRequestModeCommandBaseB
+                    {
+                        StopStart = StopStartB.Stop
+                    }
+                }
+            };
+            
+            var cancellationTokenSource = new CancellationTokenSource();
+            var tcs = new TaskCompletionSource<StopStartB>();
+            
+            if (ReceivedHandles.TryAdd((CommandTypes.Sea, Commands.LMDscandata),
+                (telegramContent) =>
+                {
+                    ReceivedHandles.Remove((CommandTypes.Sea, Commands.LMDscandata), out _);
+                    tcs.TrySetResult(((ConfirmationRequestModeCommandBaseB)telegramContent.Payload.CommandConnent).StopStart);
+                }))
+            {
+                try
+                {
+                    await Send(telegram);
+                    cancellationTokenSource.CancelAfter(3000); // 3秒超时
+                    cancellationTokenSource.Token.Register(() => tcs.TrySetCanceled());
+                    
+                    return await tcs.Task;
+                }
+                catch (OperationCanceledException)
+                {
+                    _logger?.LogWarning("停止扫描数据超时");
+                    throw new TimeoutException("停止扫描数据超时");
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "停止扫描数据失败");
+                    throw;
+                }
+            }
+            else
+            {
+                var errorMsg = "还有上次未完成的扫描停止命令";
+                _logger?.LogWarning(errorMsg);
+                throw new InvalidOperationException(errorMsg);
+            }
+        }
+
+        public async Task<LMDscandataModeCommandB> GetScanData()
+        {
+            var telegram = new TelegramContentB
+            {
+                CommandTypes = CommandTypes.Srn,
+                Payload = new SrnCommandContainerB
+                {
+                    Command = Commands.LMDscandata
+                }
+            };
+            
+            var cancellationTokenSource = new CancellationTokenSource();
+            var tcs = new TaskCompletionSource<LMDscandataModeCommandB>();
+            
+            if (ReceivedHandles.TryAdd((CommandTypes.Sra, Commands.LMDscandata),
+                (telegramContent) =>
+                {
+                    ReceivedHandles.Remove((CommandTypes.Sra, Commands.LMDscandata), out _);
+                    tcs.TrySetResult((LMDscandataModeCommandB)telegramContent.Payload.CommandConnent);
+                }))
+            {
+                try
+                {
+                    await Send(telegram);
+                    cancellationTokenSource.CancelAfter(3000); // 3秒超时
+                    cancellationTokenSource.Token.Register(() => tcs.TrySetCanceled());
+                    
+                    return await tcs.Task;
+                }
+                catch (OperationCanceledException)
+                {
+                    _logger?.LogWarning("获取扫描数据超时");
+                    throw new TimeoutException("获取扫描数据超时");
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "获取扫描数据失败");
+                    throw;
+                }
+            }
+            else
+            {
+                var errorMsg = "还有上次未完成的获取扫描数据命令";
+                _logger?.LogWarning(errorMsg);
+                throw new InvalidOperationException(errorMsg);
+            }
+        }
     }
 }

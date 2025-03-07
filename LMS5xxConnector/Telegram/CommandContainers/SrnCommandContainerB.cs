@@ -3,6 +3,10 @@ using LMS5xxConnector.Telegram.CommandContents;
 
 namespace LMS5xxConnector.Telegram.CommandContainers
 {
+    /// <summary>
+    /// 表示CoLa B协议中的SRN命令容器。
+    /// 用于封装读取操作的命令和响应。
+    /// </summary>
     public class SrnCommandContainerB : CommandContainerBaseB
     {
         [Subtype("Command", Commands.DeviceIdentOldCode, typeof(UniqueIdentificationModeCommandB), BindingMode = BindingMode.OneWay)]

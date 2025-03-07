@@ -18,6 +18,7 @@ namespace LMS5xxConnector.Telegram
         [FieldChecksum("Checksum", Mode = ChecksumMode.Xor)]
         public TelegramContentB Content { get; set; }
 
+        //https://toolslick.com/math/bitwise/xor-calculator
         [FieldOrder(3)]
         public byte Checksum { get; set; }
     }

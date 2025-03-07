@@ -469,6 +469,11 @@ public partial class MainViewModel
         }
     }
 
+    private void HanderScanData(TelegramContentB obj)
+    {
+        throw new NotImplementedException();
+    }
+
     [RelayCommand]
     private async Task StartPlayback(CancellationToken cancellationToken = default)
     {
