@@ -73,9 +73,10 @@ class Program
     private static CancellationTokenSource _scanCts = new CancellationTokenSource();
     private static ILogger _logger;
     // private static string _debugDataPath = "202503052461fd86-1b2e-4266-b3a0-ba8f288d80ef_Unknown.dat"; // 雷达数据文件路径
-    private static string _debugDataPath = "20250305463f25e8-7e1c-4744-8982-87dc20e699f6_Unknown.dat"; // 雷达数据文件路径
+    // private static string _debugDataPath = "20250305463f25e8-7e1c-4744-8982-87dc20e699f6_Unknown.dat"; // 雷达数据文件路径
     // private static string _debugDataPath = "2025030534fcbfca-081d-490f-9912-8d31fd77bb80_Unknown.dat"; // 雷达数据文件路径
     // private static string _debugDataPath = "20250213d416802a-9d18-4a5d-a53e-f635787028dd_Unknown.dat"; // 雷达数据文件路径
+    private static string _debugDataPath = "202507249df4ce25-97d4-4b97-a61f-5fcfd56c46bd_Unknown.dat"; // 标定数据
     private static List<byte[]> _lmdDataFrames = new List<byte[]>();
 
     static async Task Main(string[] args)
